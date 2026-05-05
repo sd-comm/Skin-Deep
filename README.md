@@ -63,7 +63,3 @@ All game logic, UI, and shaders live inside `digital_exhibition_faith.html`. The
 | Tap interact button | Interact |
 
 ---
-
-## Development
-
-Development files (texture source data, compression scripts, performance notes) are preserved on the `dev` branch.
