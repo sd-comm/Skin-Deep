@@ -28,7 +28,6 @@ The experience is intended to be **embedded as an `<iframe>`** on the Skin Deep 
 void_walker.html   — The entire application (self-contained)
 orb_tex.png        — Player orb texture
 tile.png           — Floor and wall tile texture
-start_server.txt   — How to run locally
 ```
 
 All game logic, UI, and shaders live inside `void_walker.html`. There is no build process, bundler, or package manager.
