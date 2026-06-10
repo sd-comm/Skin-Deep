@@ -430,6 +430,83 @@ function makeFloaterTex(type) {
   return new THREE.CanvasTexture(cv);
 }
 
+function makeExhibitTex_A() {
+  const S = 512, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#060810'; ctx.fillRect(0, 0, S, S);
+  const g = ctx.createLinearGradient(0, 0, 0, S);
+  g.addColorStop(0,   'rgba(20,80,100,0.9)');
+  g.addColorStop(0.4, 'rgba(10,40,60,0.6)');
+  g.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+  const bloom = ctx.createRadialGradient(S*0.6, S*0.35, 0, S*0.6, S*0.35, S*0.32);
+  bloom.addColorStop(0,   'rgba(100,220,240,0.22)');
+  bloom.addColorStop(0.5, 'rgba(40,140,170,0.08)');
+  bloom.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = bloom; ctx.fillRect(0, 0, S, S);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  for (let y = 0; y < S; y += 4) ctx.fillRect(0, y, S, 1);
+  ctx.strokeStyle = 'rgba(100,220,240,0.35)'; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(0, S*0.38); ctx.lineTo(S, S*0.38); ctx.stroke();
+  return new THREE.CanvasTexture(cv);
+}
+
+function makeExhibitTex_B() {
+  const S = 512, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#0a0806'; ctx.fillRect(0, 0, S, S);
+  const vig = ctx.createRadialGradient(S*0.48, S*0.44, 0, S*0.48, S*0.44, S*0.52);
+  vig.addColorStop(0,   'rgba(255,240,210,0.55)');
+  vig.addColorStop(0.5, 'rgba(200,175,140,0.18)');
+  vig.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = vig; ctx.fillRect(0, 0, S, S);
+  const id = ctx.createImageData(S, S);
+  for (let i = 0; i < S*S; i++) {
+    const v = Math.random() < 0.12 ? (Math.random() * 180 + 40) : (Math.random() * 18);
+    id.data[i*4]   = v * 1.1;
+    id.data[i*4+1] = v;
+    id.data[i*4+2] = v * 0.85;
+    id.data[i*4+3] = Math.random() * 120 + 60;
+  }
+  ctx.putImageData(id, 0, 0);
+  for (let b = 0; b < 3; b++) {
+    const by = S * (0.28 + b * 0.18 + Math.random() * 0.04);
+    ctx.fillStyle = `rgba(255,248,235,${0.06 + Math.random() * 0.08})`;
+    ctx.fillRect(0, by, S, 1 + Math.random() * 2.5);
+  }
+  return new THREE.CanvasTexture(cv);
+}
+
+function makeExhibitTex_C() {
+  const S = 512, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#0d0b09'; ctx.fillRect(0, 0, S, S);
+  const panels = [
+    { x: S*0.18, y: S*0.22, w: S*0.28, h: S*0.38, a: 0.07 },
+    { x: S*0.62, y: S*0.45, w: S*0.20, h: S*0.30, a: 0.05 },
+  ];
+  panels.forEach(p => {
+    const pg = ctx.createRadialGradient(p.x+p.w/2, p.y+p.h/2, 0, p.x+p.w/2, p.y+p.h/2, Math.max(p.w,p.h)*0.6);
+    pg.addColorStop(0, `rgba(255,250,235,${p.a})`);
+    pg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = pg; ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.strokeStyle = `rgba(220,210,190,${p.a * 0.8})`; ctx.lineWidth = 0.6;
+    ctx.strokeRect(p.x, p.y, p.w, p.h);
+  });
+  ctx.strokeStyle = 'rgba(200,190,170,0.055)'; ctx.lineWidth = 0.5;
+  for (let x = 0; x <= S; x += 32) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, S); ctx.stroke(); }
+  for (let y = 0; y <= S; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(S, y); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(220,210,180,0.4)';
+  for (let x = 0; x <= S; x += 96)
+    for (let y = 0; y <= S; y += 96) {
+      ctx.beginPath(); ctx.arc(x, y, 1.2, 0, Math.PI*2); ctx.fill();
+    }
+  return new THREE.CanvasTexture(cv);
+}
+
 // ══════════════════════════════════════════
 //  SCENE
 // ══════════════════════════════════════════
@@ -715,6 +792,23 @@ floaters.forEach((f, i) => {
 let roomRevealed = false;
 let revealT = 0; // 0 = fully dark, 1 = fully lit
 
+// Exhibition state
+let exhibitOpen   = false;
+let exhibitPhase  = null;    // 'opening' | 'open' | 'closing' | null
+let exhibitT      = 0;
+let exhibitPlanes = null;
+let exhibitAngle  = 0;       // current orbit angle (radians)
+let exhibitCX     = 0;       // orbit centre X (player pos at trigger)
+let exhibitCZ     = 0;       // orbit centre Z
+
+const EXHIBIT_OPEN_DUR  = 0.55;
+const EXHIBIT_CLOSE_DUR = 0.35;
+const EXHIBIT_W         = 2.8;
+const EXHIBIT_H         = 3.8;
+const EXHIBIT_STAGGER   = [0.0, 0.12, 0.24];
+const EXHIBIT_ORBIT_R   = 4.5;   // radius of the orbit circle
+const EXHIBIT_ORBIT_SPD = 0.22;  // radians/second (one lap ≈ 28 s)
+
 // ══════════════════════════════════════════
 //  INPUT
 // ══════════════════════════════════════════
@@ -744,7 +838,7 @@ renderer.domElement.addEventListener('touchstart', e => {
 });
 renderer.domElement.addEventListener('touchmove', e => {
   for (const t of e.changedTouches)
-    if (t.identifier === tLookId) { yaw -= (t.clientX - tX) * 0.003; tX = t.clientX; }
+    if (t.identifier === tLookId && !exhibitOpen) { yaw -= (t.clientX - tX) * 0.003; tX = t.clientX; }
 });
 renderer.domElement.addEventListener('touchend',    e => { for (const t of e.changedTouches) if (t.identifier === tLookId) tLookId = -1; });
 renderer.domElement.addEventListener('touchcancel', e => { for (const t of e.changedTouches) if (t.identifier === tLookId) tLookId = -1; });
@@ -1037,6 +1131,45 @@ const _fwd = new THREE.Vector3();
 const _rgt = new THREE.Vector3();
 const _camTarget = new THREE.Vector3();
 
+function _openExhibit(px, pz, openYaw) {
+  if (exhibitPhase) return;
+  exhibitOpen  = true;
+  exhibitPhase = 'opening';
+  exhibitT     = 0;
+  exhibitAngle = openYaw;
+  exhibitCX    = px;
+  exhibitCZ    = pz;
+  const texFns = [makeExhibitTex_A, makeExhibitTex_B, makeExhibitTex_C];
+  exhibitPlanes = [0, 1, 2].map(i => {
+    const a  = exhibitAngle + i * (Math.PI * 2 / 3);
+    const tex = texFns[i]();
+    const geo = new THREE.PlaneGeometry(EXHIBIT_W, EXHIBIT_H);
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(px + Math.sin(a) * EXHIBIT_ORBIT_R, 2.0, pz + Math.cos(a) * EXHIBIT_ORBIT_R);
+    mesh.rotation.y = a + Math.PI;
+    mesh.scale.setScalar(0.05);
+    scene.add(mesh);
+    return { mesh, geo, mat, tex };
+  });
+}
+
+function _closeExhibit() {
+  if (exhibitPlanes) {
+    exhibitPlanes.forEach(p => {
+      scene.remove(p.mesh);
+      p.geo.dispose();
+      p.mat.dispose();
+      p.tex.dispose();
+    });
+    exhibitPlanes = null;
+  }
+  exhibitOpen  = false;
+  exhibitPhase = null;
+  exhibitT     = 0;
+  iCD = 0.6;
+}
+
 // Mobile frame-rate governor (caps to 60fps on high-refresh devices)
 let _mobileAcc = 0;
 const _MOBILE_TARGET = 1 / 60;
@@ -1069,21 +1202,23 @@ function animate() {
   _rgt.set(-Math.cos(yaw), 0, Math.sin(yaw));
   let moving = false;
 
-  // Arrow keys rotate camera
-  if(keys['ArrowLeft'])  yaw += CAM_TURN * dt;
-  if(keys['ArrowRight']) yaw -= CAM_TURN * dt;
+  if (!exhibitOpen) {
+    // Arrow keys rotate camera
+    if(keys['ArrowLeft'])  yaw += CAM_TURN * dt;
+    if(keys['ArrowRight']) yaw -= CAM_TURN * dt;
 
-  // WASD moves
-  if(keys['KeyW']) { player.position.addScaledVector(_fwd, SPEED*dt); moving=true; }
-  if(keys['KeyS']) { player.position.addScaledVector(_fwd,-SPEED*dt); moving=true; }
-  if(keys['KeyA']) { player.position.addScaledVector(_rgt,-SPEED*dt); moving=true; }
-  if(keys['KeyD']) { player.position.addScaledVector(_rgt, SPEED*dt); moving=true; }
+    // WASD moves
+    if(keys['KeyW']) { player.position.addScaledVector(_fwd, SPEED*dt); moving=true; }
+    if(keys['KeyS']) { player.position.addScaledVector(_fwd,-SPEED*dt); moving=true; }
+    if(keys['KeyA']) { player.position.addScaledVector(_rgt,-SPEED*dt); moving=true; }
+    if(keys['KeyD']) { player.position.addScaledVector(_rgt, SPEED*dt); moving=true; }
 
-  // Virtual joystick movement
-  if (_joy.active && (Math.abs(_joy.dx) > 8 || Math.abs(_joy.dy) > 8)) {
-    player.position.addScaledVector(_rgt,  (_joy.dx / JR) * SPEED * dt);
-    player.position.addScaledVector(_fwd, -(_joy.dy / JR) * SPEED * dt);
-    moving = true;
+    // Virtual joystick movement
+    if (_joy.active && (Math.abs(_joy.dx) > 8 || Math.abs(_joy.dy) > 8)) {
+      player.position.addScaledVector(_rgt,  (_joy.dx / JR) * SPEED * dt);
+      player.position.addScaledVector(_fwd, -(_joy.dy / JR) * SPEED * dt);
+      moving = true;
+    }
   }
 
   player.position.x = Math.max(-BOUND, Math.min(BOUND, player.position.x));
@@ -1178,7 +1313,7 @@ function animate() {
   const eDown=keys['KeyE']||keys['Space'];
 
   // Proximity prompt — project above the near object
-  if (near.ref && tutStage >= 3 && iCD <= 0 && !_elToast.classList.contains('visible')) {
+  if (near.ref && tutStage >= 3 && iCD <= 0 && !exhibitOpen && !_elToast.classList.contains('visible')) {
     const _wp = new THREE.Vector3();
     near.ref.mesh.getWorldPosition(_wp);
     _wp.y += 0.55; // offset just above object
@@ -1200,22 +1335,62 @@ function animate() {
   } else {
     _elPrompt.classList.remove('visible');
   }
-  if(eDown&&!eWas&&near.ref&&iCD<=0){
+  // Dismiss exhibition — priority, no cooldown required
+  if (eDown && !eWas && exhibitPhase === 'open') {
+    exhibitPhase = 'closing';
+    iCD = 0.3;
+  // Normal floater interaction
+  } else if(eDown&&!eWas&&near.ref&&iCD<=0){
     const f=near.ref;
-    showToast(f.message);
-    if (!roomRevealed && f === floaters[0]) roomRevealed = true;
-    if (tutStage === 4) _tutDismiss();
-    iCD=1.0;
-    let b=0;
-    const burst=()=>{b+=0.04;f.mesh.scale.setScalar(1+Math.sin(b*Math.PI)*0.7);if(b<1)requestAnimationFrame(burst);else f.mesh.scale.setScalar(1);};
-    burst();
-    for(let i=0;i<14;i++){
-      const a=(i/14)*Math.PI*2, p=pData[pIdx++%MAX_P];
-      p.x=f.mesh.position.x+Math.cos(a)*0.6; p.y=f.mesh.position.y; p.z=f.mesh.position.z+Math.sin(a)*0.6; p.life=1;
+    if (f === floaters[1] && !exhibitPhase) {
+      _openExhibit(player.position.x, player.position.z, yaw);
+      iCD = 0.5;
+    } else if (f !== floaters[1]) {
+      showToast(f.message);
+      if (!roomRevealed && f === floaters[0]) roomRevealed = true;
+      if (tutStage === 4) _tutDismiss();
+      iCD=1.0;
+      let b=0;
+      const burst=()=>{b+=0.04;f.mesh.scale.setScalar(1+Math.sin(b*Math.PI)*0.7);if(b<1)requestAnimationFrame(burst);else f.mesh.scale.setScalar(1);};
+      burst();
+      for(let i=0;i<14;i++){
+        const a=(i/14)*Math.PI*2, p=pData[pIdx++%MAX_P];
+        p.x=f.mesh.position.x+Math.cos(a)*0.6; p.y=f.mesh.position.y; p.z=f.mesh.position.z+Math.sin(a)*0.6; p.life=1;
+      }
     }
   }
   eWas=eDown;
   if(iCD>0)iCD-=dt;
+
+  // Exhibition animation tick
+  if (exhibitPhase) {
+    // Orbit — runs every frame regardless of open/opening/closing phase
+    exhibitAngle += dt * EXHIBIT_ORBIT_SPD;
+    exhibitPlanes.forEach((p, i) => {
+      const a = exhibitAngle + i * (Math.PI * 2 / 3);
+      p.mesh.position.x = exhibitCX + Math.sin(a) * EXHIBIT_ORBIT_R;
+      p.mesh.position.z = exhibitCZ + Math.cos(a) * EXHIBIT_ORBIT_R;
+      p.mesh.rotation.y = a + Math.PI;
+    });
+
+    if (exhibitPhase === 'opening') {
+      exhibitT = Math.min(1, exhibitT + dt / EXHIBIT_OPEN_DUR);
+      exhibitPlanes.forEach((p, i) => {
+        const elapsed = exhibitT * EXHIBIT_OPEN_DUR - EXHIBIT_STAGGER[i];
+        const rem     = EXHIBIT_OPEN_DUR - EXHIBIT_STAGGER[i];
+        const lt      = Math.max(0, Math.min(1, elapsed / rem));
+        const s       = lt * lt * (3 - 2 * lt);
+        p.mesh.scale.setScalar(0.05 + s * 0.95);
+        p.mat.opacity = s;
+      });
+      if (exhibitT >= 1) exhibitPhase = 'open';
+    } else if (exhibitPhase === 'closing') {
+      exhibitT = Math.max(0, exhibitT - dt / EXHIBIT_CLOSE_DUR);
+      const s = exhibitT * exhibitT * (3 - 2 * exhibitT);
+      exhibitPlanes.forEach(p => { p.mesh.scale.setScalar(0.05 + s * 0.95); p.mat.opacity = s; });
+      if (exhibitT <= 0) _closeExhibit();
+    }
+  }
 
   _elKeySpace.classList.toggle('active', !!near.ref);
 
