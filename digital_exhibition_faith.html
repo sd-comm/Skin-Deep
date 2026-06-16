@@ -614,12 +614,13 @@ scene.background = new THREE.Color(0x000000);
 scene.fog = new THREE.FogExp2(0x000000, 0.032);
 
 const isMobile = window.matchMedia('(pointer: coarse)').matches;
-const renderer = new THREE.WebGLRenderer({ antialias: !isMobile });
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 // Adaptive resolution scaling — DPR is tuned at runtime to hold ~60fps (see animate()).
-// Start mobile mid-range so the first second isn't blurry, then climb toward MAX_DPR.
-const MIN_DPR = 1.0;
+// Start at full resolution; the governor backs off only if a device can't sustain 60fps.
+// Mobile floor is held at 1.5 so a transient FPS dip never drops to a blurry 1.0.
+const MIN_DPR = isMobile ? 1.5 : 1.0;
 const MAX_DPR = Math.min(window.devicePixelRatio, isMobile ? 2.0 : 2);
-let curDPR = isMobile ? Math.min(1.5, MAX_DPR) : MAX_DPR;
+let curDPR = MAX_DPR;
 // While an exhibit card is open the viewer studies the photos head-on, so we push
 // the framebuffer to full resolution and pause the adaptive downscaler (see animate()).
 const EXHIBIT_DPR = MAX_DPR;
@@ -631,8 +632,8 @@ renderer.toneMapping = isMobile ? THREE.NoToneMapping : THREE.ACESFilmicToneMapp
 if (!isMobile) renderer.toneMappingExposure = 1.15;
 document.body.appendChild(renderer.domElement);
 
-// Cap anisotropy: sharpens the tiled floor at grazing angles without the full cost on mobile
-const MAX_ANISO = Math.min(renderer.capabilities.getMaxAnisotropy(), isMobile ? 4 : 8);
+// Anisotropy sharpens the tiled floor at grazing angles; near-free on modern GPUs so match desktop
+const MAX_ANISO = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
 
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.1, 80);
 
