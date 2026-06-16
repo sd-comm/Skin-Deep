@@ -1504,8 +1504,10 @@ function _exhibitFocusScale(panelW, panelH) {
 function _computeExhibitFocusTarget(outPos, outQuat, panelW, panelH) {
   camera.getWorldDirection(_camLookDir);
   outPos.copy(camera.position).addScaledVector(_camLookDir, EXHIBIT_FOCUS_CAM_DIST);
-  // Same up as the camera; negate right so PlaneGeometry UVs aren't Y-flipped
-  _rgt.setFromMatrixColumn(camera.matrixWorld, 0).negate();
+  // Build a proper right-handed basis matching the camera's own axes so the panel
+  // sits flush with the viewport. right × up = backward (det=+1); negating right
+  // would flip the handedness to -1, breaking setFromRotationMatrix.
+  _rgt.setFromMatrixColumn(camera.matrixWorld, 0);
   _fwd.setFromMatrixColumn(camera.matrixWorld, 1);
   _panelWp.copy(_camLookDir).negate();
   _focusBasis.makeBasis(_rgt, _fwd, _panelWp);
@@ -1536,7 +1538,9 @@ function _applyExhibitPanelTransform(p, i, orbitAngle) {
   p.mesh.position.x = exhibitCX + Math.sin(a) * EXHIBIT_ORBIT_R;
   p.mesh.position.y = 2.0;
   p.mesh.position.z = exhibitCZ + Math.cos(a) * EXHIBIT_ORBIT_R;
-  p.mesh.rotation.y = a + Math.PI;
+  // Use rotation.set to explicitly zero X and Z axes so no residual tilt from
+  // the focus slerp animation carries over into the orbit state.
+  p.mesh.rotation.set(0, a + Math.PI, 0);
 }
 
 function _getAimedExhibitPanelIdx() {
@@ -1897,22 +1901,18 @@ function animate() {
     _elPrompt.classList.remove('visible');
   }
 
-  // Exhibit aim reticle — single small circle at centre, snaps to aimed panel when locked
+  // Exhibit aim reticle — only visible when the aim is locked onto a panel
   if (exhibitPhase === 'open' && exhibitFocusPhase !== 'focused') {
-    let rx = window.innerWidth * 0.5;
-    let ry = window.innerHeight * 0.5;
     if (exhibitCanFocus) {
       const tp = exhibitPlanes[exhibitAimedIdx].mesh;
       tp.getWorldPosition(_panelWp);
       _panelWp.project(camera);
-      rx = (_panelWp.x * 0.5 + 0.5) * window.innerWidth;
-      ry = (-_panelWp.y * 0.5 + 0.5) * window.innerHeight;
-    }
-    _elAimReticle.style.left = rx + 'px';
-    _elAimReticle.style.top  = ry + 'px';
-    _elAimReticle.classList.add('visible');
-    _elAimReticle.classList.toggle('locked', exhibitCanFocus);
-    if (exhibitCanFocus) {
+      const rx = (_panelWp.x * 0.5 + 0.5) * window.innerWidth;
+      const ry = (-_panelWp.y * 0.5 + 0.5) * window.innerHeight;
+      _elAimReticle.style.left = rx + 'px';
+      _elAimReticle.style.top  = ry + 'px';
+      _elAimReticle.classList.add('visible');
+      _elAimReticle.classList.add('locked');
       _elPrompt.style.left = rx + 'px';
       _elPrompt.style.top  = (ry - 36) + 'px';
       _elIprLabel.textContent = isMobile ? 'tap to focus' : 'focus';
@@ -1924,6 +1924,8 @@ function animate() {
       }
       _elPrompt.classList.add('visible');
     } else {
+      _elAimReticle.classList.remove('visible');
+      _elAimReticle.classList.remove('locked');
       _elPrompt.classList.remove('visible');
     }
   } else if (exhibitFocusPhase === 'focused') {
@@ -2063,8 +2065,11 @@ function animate() {
       exhibitPlanes.forEach((p, i) => {
         const a = _exhibitPanelAngle(i);
         p.mesh.position.x = exhibitCX + Math.sin(a) * EXHIBIT_ORBIT_R;
+        p.mesh.position.y = 2.0;
         p.mesh.position.z = exhibitCZ + Math.cos(a) * EXHIBIT_ORBIT_R;
-        p.mesh.rotation.y = a + Math.PI;
+        // Explicitly zero X/Z so no residual tilt from focus slerp survives.
+        p.mesh.rotation.set(0, a + Math.PI, 0);
+        p.mesh.scale.setScalar(1);
         p.mesh.material.transparent = false;
         p.mesh.material.opacity = 1;
         if (exhibitPhase === 'open') p.mesh.visible = Math.cos(a - yaw) > -0.6;
