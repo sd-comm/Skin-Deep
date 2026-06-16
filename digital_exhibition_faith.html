@@ -1213,7 +1213,7 @@ function _openExhibit(px, pz, openYaw) {
   exhibitOpen  = true;
   exhibitPhase = 'opening';
   exhibitT     = 0;
-  exhibitAngle = openYaw;
+  exhibitAngle = openYaw - 5 * (Math.PI * 2 / 6);
   exhibitCX    = px;
   exhibitCZ    = pz;
   exhibitPlanes = [0, 1, 2, 3, 4, 5].map(i => {
@@ -1431,7 +1431,7 @@ function animate() {
   } else if(eDown&&!eWas&&near.ref&&iCD<=0){
     const f=near.ref;
     if (f === floaters[1] && !exhibitPhase) {
-      _openExhibit(f.mesh.position.x, f.mesh.position.z, yaw);
+      _openExhibit(player.position.x, player.position.z, yaw);
       iCD = 0.5;
     } else if (f !== floaters[1]) {
       showToast(f.message);
