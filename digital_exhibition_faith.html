@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -2269,8 +2269,8 @@ const _exhibitRayMeshes = [];
 function _syncCamera() {
   const camX = player.position.x - Math.sin(yaw) * 4.6;
   const camZ = player.position.z - Math.cos(yaw) * 4.6;
-  camera.position.lerp(_camTarget.set(camX, player.position.y + 3.1, camZ), 0.1);
-  camera.lookAt(player.position.x, player.position.y + 1.6, player.position.z);
+  camera.position.lerp(_camTarget.set(camX, player.position.y + 3.05, camZ), 0.1);
+  camera.lookAt(player.position.x, player.position.y + 1.9, player.position.z);
   camera.updateMatrixWorld();
 }
 
