@@ -188,6 +188,159 @@
   }
   #crate-back-btn.visible { opacity: 1; pointer-events: auto; }
   #crate-back-btn:active { transform: scale(0.92); }
+
+  /* ── UNIFIED VINYL PLAYER CARD (embed preview + SoundCloud + tracklist) ── */
+  #vinyl-media-panel {
+    position: fixed; z-index: 27;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(460px, calc(100vw - 32px));
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.45s ease;
+  }
+  #vinyl-media-panel.visible { opacity: 1; }
+  /* card-overlay: compact card overlaid on the 3D card face.
+     Position + size are driven by JS each frame; only opacity transitions. */
+  #vinyl-media-panel.card-overlay {
+    pointer-events: auto;
+  }
+  #vinyl-media-panel.card-overlay .vmp-inner {
+    height: 100%;
+    background: rgba(4,2,0,0.92);
+    border: 1px solid rgba(255,200,100,0.3);
+    border-radius: 8px;
+    padding: 10px 10px 8px;
+    max-height: none;
+    box-shadow: 0 0 28px rgba(255,180,60,0.1), inset 0 1px 0 rgba(255,200,100,0.08);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    overflow: hidden;
+  }
+  /* Compact header: title + subtitle, no card preview image */
+  #vinyl-media-panel.card-overlay .vmp-card-preview { display: none !important; }
+  #vinyl-media-panel.card-overlay .vmp-header {
+    display: block !important;
+    margin-bottom: 8px;
+  }
+  #vinyl-media-panel.card-overlay #vmp-title {
+    font-size: 12px; letter-spacing: 0.03em; line-height: 1.3;
+  }
+  #vinyl-media-panel.card-overlay #vmp-subtitle {
+    font-size: 9px; margin-top: 3px;
+  }
+  #vinyl-media-panel.card-overlay .vmp-tabs,
+  #vinyl-media-panel.card-overlay #vmp-nts-link,
+  #vinyl-media-panel.card-overlay #vmp-tracklist-view { display: none !important; }
+  #vinyl-media-panel.card-overlay #vmp-player-view { flex: 1; display: flex; min-height: 0; }
+  #vinyl-media-panel.card-overlay #vmp-iframe {
+    flex: 1; height: 100%; min-height: 0; border-radius: 6px;
+  }
+  .vmp-inner {
+    position: relative;
+    pointer-events: auto;
+    width: 100%;
+    max-height: calc(100vh - 96px);
+    display: flex; flex-direction: column;
+    background: rgba(5,3,1,0.9);
+    border: 1px solid rgba(255,200,100,0.28);
+    border-radius: 16px;
+    padding: 18px 20px 16px;
+    box-shadow: 0 16px 60px rgba(0,0,0,0.9), 0 0 70px rgba(255,180,60,0.07), inset 0 1px 0 rgba(255,200,100,0.1);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    font-family: Georgia, serif; color: rgba(255,225,160,0.95);
+  }
+  /* Square gold embed preview — matches the 3D crate card face */
+  .vmp-card-preview {
+    width: 150px; height: 150px;
+    margin: 2px auto 14px;
+    flex: none;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.7), 0 0 20px rgba(255,180,60,0.08);
+    overflow: hidden;
+  }
+  .vmp-preview {
+    display: block;
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  .vmp-header { margin-bottom: 14px; text-align: center; flex: none; }
+  #vmp-title {
+    margin: 0; font-size: 17px; font-weight: 700; letter-spacing: 0.04em;
+    line-height: 1.35; color: rgba(255,235,170,0.96);
+  }
+  #vmp-subtitle {
+    margin: 6px 0 0; font-size: 11px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: rgba(255,200,100,0.45);
+  }
+  /* Tabs */
+  .vmp-tabs {
+    display: flex; gap: 8px; margin-bottom: 14px; flex: none;
+  }
+  .vmp-tab {
+    flex: 1; padding: 9px 12px;
+    font-family: Georgia, serif; font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: rgba(255,200,100,0.55);
+    background: rgba(255,180,60,0.05);
+    border: 1px solid rgba(255,200,100,0.18);
+    border-radius: 8px; cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .vmp-tab:hover { color: rgba(255,220,140,0.9); border-color: rgba(255,200,100,0.32); }
+  .vmp-tab.active {
+    color: rgba(255,235,170,0.98);
+    background: rgba(255,180,60,0.16);
+    border-color: rgba(255,200,100,0.5);
+  }
+  .vmp-view { transition: opacity 0.3s ease; min-height: 0; }
+  .vmp-view:not(.active) { display: none; }
+  #vmp-iframe {
+    display: block; width: 100%; height: 166px;
+    border: none; border-radius: 8px; background: #111;
+  }
+  #vmp-nts-link {
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-top: 12px; width: 100%; padding: 10px 16px;
+    border-radius: 8px; font-size: 12px; letter-spacing: 0.1em;
+    text-transform: uppercase; text-decoration: none;
+    color: rgba(255,220,140,0.95);
+    background: rgba(255,180,60,0.1);
+    border: 1px solid rgba(255,200,100,0.28);
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+  #vmp-nts-link:hover {
+    background: rgba(255,180,60,0.18);
+    border-color: rgba(255,200,100,0.45);
+  }
+  #vmp-tracklist {
+    list-style: none; margin: 0; padding: 0 4px 0 0;
+    max-height: min(300px, 44vh); overflow-y: auto;
+  }
+  #vmp-tracklist li {
+    display: grid; grid-template-columns: 52px 1fr;
+    gap: 4px 10px; padding: 9px 0;
+    border-bottom: 1px solid rgba(255,200,100,0.1);
+    font-size: 13px; line-height: 1.35;
+  }
+  #vmp-tracklist li:last-child { border-bottom: none; }
+  .vmp-time {
+    grid-row: span 2; align-self: center;
+    font-size: 10px; letter-spacing: 0.06em;
+    color: rgba(255,200,100,0.42);
+  }
+  .vmp-artist {
+    font-size: 11px; letter-spacing: 0.04em;
+    color: rgba(255,200,100,0.55);
+  }
+  .vmp-track { color: rgba(255,235,170,0.92); }
+  @media (max-width: 480px) {
+    #vinyl-media-panel { width: min(400px, calc(100vw - 24px)); }
+    .vmp-inner { padding: 14px 14px 12px; }
+    .vmp-card-preview { width: 128px; height: 128px; }
+    #vmp-iframe { height: 152px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #vinyl-media-panel { transition: none; }
+  }
   @media (pointer: coarse) {
     #crate-back-btn { backdrop-filter: none; -webkit-backdrop-filter: none; }
   }
@@ -464,6 +617,28 @@
 <div id="minimap-wrap">
   <canvas id="minimap" width="120" height="120"></canvas>
   <div id="minimap-label">map</div>
+</div>
+<div id="vinyl-media-panel" aria-hidden="true">
+  <div class="vmp-inner">
+    <div class="vmp-card-preview">
+      <img id="vmp-preview" class="vmp-preview" alt="">
+    </div>
+    <div class="vmp-header">
+      <h2 id="vmp-title"></h2>
+      <p id="vmp-subtitle"></p>
+    </div>
+    <div class="vmp-tabs" role="tablist">
+      <button id="vmp-tab-player" class="vmp-tab active" data-tab="player" type="button" role="tab">Player</button>
+      <button id="vmp-tab-tracklist" class="vmp-tab" data-tab="tracklist" type="button" role="tab">Tracklist</button>
+    </div>
+    <div id="vmp-player-view" class="vmp-view active" role="tabpanel">
+      <iframe id="vmp-iframe" scrolling="no" frameborder="no" allow="autoplay; encrypted-media" title="SoundCloud player"></iframe>
+      <a id="vmp-nts-link" target="_blank" rel="noopener noreferrer">Listen on NTS</a>
+    </div>
+    <div id="vmp-tracklist-view" class="vmp-view" role="tabpanel">
+      <ol id="vmp-tracklist"></ol>
+    </div>
+  </div>
 </div>
 <div id="mobile-controls">
   <div id="joystick-zone">
@@ -787,121 +962,205 @@ function makeMasjidUnclesCardTex() {
 }
 
 // ── VINYL CRATE ASSET TEXTURES ──
-// Square album-cover placeholders. Swap for real art later by loading image files
-// into VINYL.records[i].coverTex instead (see _buildVinylAssets).
-function makeRecordCoverTex(i, title) {
-  const S = 512;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = S;
-  const ctx = cv.getContext('2d');
-  const palettes = [
-    ['#1a0f2e', '#7b2ff7', '#f72f9b'],
-    ['#0d1b2a', '#1b9aaa', '#ffd166'],
-    ['#2a0a05', '#e85d04', '#ffba08'],
-    ['#06130f', '#2dc653', '#d8f3dc'],
-  ];
-  const pal = palettes[i % palettes.length];
+// Gold-framed square cards (same palette as exhibit info cards). Front face is a
+// stylised embed preview; back holds the tracklist.
 
-  const bg = ctx.createLinearGradient(0, 0, S, S);
-  bg.addColorStop(0, pal[0]);
-  bg.addColorStop(1, pal[1]);
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, S, S);
+function _drawGoldCardChrome(ctx, W, H) {
+  ctx.fillStyle = 'rgb(4,2,1)';
+  ctx.fillRect(0, 0, W, H);
 
-  ctx.save();
-  ctx.fillStyle = pal[2];
-  ctx.strokeStyle = pal[2];
-  if (i % 4 === 0) {
-    ctx.globalAlpha = 0.85;
-    for (let r = 40; r < S * 0.6; r += 34) {
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(S * 0.5, S * 0.42, r, 0, Math.PI * 2); ctx.stroke();
-    }
-  } else if (i % 4 === 1) {
-    ctx.globalAlpha = 0.8;
-    for (let x = 60; x < S - 40; x += 56) {
-      const h = 60 + Math.abs(Math.sin(x * 0.05)) * 220;
-      ctx.fillRect(x, S * 0.62 - h, 30, h);
-    }
-  } else if (i % 4 === 2) {
-    ctx.globalAlpha = 0.85;
-    ctx.beginPath();
-    ctx.moveTo(S * 0.5, 70);
-    ctx.lineTo(S * 0.82, S * 0.62);
-    ctx.lineTo(S * 0.18, S * 0.62);
-    ctx.closePath();
-    ctx.fill();
-  } else {
-    ctx.globalAlpha = 0.7;
-    ctx.lineWidth = 2;
-    for (let g = 70; g < S - 40; g += 48) {
-      ctx.beginPath(); ctx.moveTo(g, 60); ctx.lineTo(g, S * 0.62); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(60, g); ctx.lineTo(S - 60, g); ctx.stroke();
-    }
-  }
-  ctx.restore();
-
-  const vg = ctx.createRadialGradient(S / 2, S / 2, 60, S / 2, S / 2, S * 0.72);
+  const vg = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W * 0.7);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.5)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.55)');
   ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, S, S);
+  ctx.fillRect(0, 0, W, H);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(18, 18, S - 36, S - 36);
+  const BM = Math.round(W * 0.027);
+  ctx.strokeStyle = 'rgba(255,200,100,0.32)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(BM, BM, W - BM * 2, H - BM * 2);
 
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,0.96)';
-  ctx.font = '700 44px Georgia, serif';
-  ctx.shadowColor = 'rgba(0,0,0,0.6)';
-  ctx.shadowBlur = 12;
-  ctx.fillText((title || 'UNTITLED').toUpperCase(), S / 2, S * 0.82);
+  ctx.strokeStyle = 'rgba(255,200,100,0.1)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(BM + 4, BM + 4, W - BM * 2 - 8, H - BM * 2 - 8);
+
+  const CL = Math.round(W * 0.055), F = BM;
+  ctx.shadowColor = 'rgba(255,220,120,1)';
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = 'rgba(255,240,160,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(F + CL, F);     ctx.lineTo(F, F);     ctx.lineTo(F, F + CL);     ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W - F - CL, F); ctx.lineTo(W - F, F); ctx.lineTo(W - F, F + CL); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W - F, H - F - CL); ctx.lineTo(W - F, H - F); ctx.lineTo(W - F - CL, H - F); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(F + CL, H - F); ctx.lineTo(F, H - F); ctx.lineTo(F, H - F - CL); ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.font = '400 18px Georgia, serif';
-  ctx.fillText('SKIN DEEP RECORDINGS', S / 2, S * 0.9);
+}
+
+function _drawEmbedWaveform(ctx, x, y, w, h, seed, bright) {
+  const n = 52;
+  const mid = y + h / 2;
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const amp = 0.12 + 0.88 * Math.abs(Math.sin((i * 0.41 + seed) * 1.65)) * Math.abs(Math.cos((i * 0.23 + seed * 1.7) * 0.88));
+    const barH = h * 0.1 + h * 0.42 * amp;
+    const barW = (w / n) * 0.58;
+    const bx = x + t * w;
+    const alpha = bright ? 0.22 + amp * 0.5 : 0.14 + amp * 0.32;
+    ctx.fillStyle = `rgba(255,200,100,${alpha})`;
+    ctx.fillRect(bx, mid - barH / 2, barW, barH);
+  }
+}
+
+function _drawEmbedPlayGlyph(ctx, cx, cy, r) {
+  ctx.fillStyle = 'rgba(255,238,175,0.94)';
+  ctx.shadowColor = 'rgba(255,200,80,0.35)';
+  ctx.shadowBlur = 16;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgb(4,2,1)';
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.14, cy - r * 0.34);
+  ctx.lineTo(cx + r * 0.44, cy);
+  ctx.lineTo(cx - r * 0.14, cy + r * 0.34);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function _wrapCanvasLines(ctx, text, maxW) {
+  const words = (text || '').split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const lines = [];
+  let line = words[0];
+  for (let w = 1; w < words.length; w++) {
+    const test = line + ' ' + words[w];
+    if (ctx.measureText(test).width <= maxW) line = test;
+    else { lines.push(line); line = words[w]; }
+  }
+  lines.push(line);
+  return lines;
+}
+
+function makeVinylCardFrontTex(rec, i) {
+  const S = 512;
+  const SS = 2;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S * SS;
+  const ctx = cv.getContext('2d');
+  ctx.scale(SS, SS);
+  _drawGoldCardChrome(ctx, S, S);
+
+  const cx = S / 2;
+  const pad = 52;
+  const innerW = S - pad * 2;
+  const hasMedia = !!(rec && rec.soundcloudSrc);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+
+  ctx.fillStyle = 'rgba(255,200,100,0.42)';
+  ctx.font = '400 11px Georgia, serif';
+  const label = hasMedia ? (rec.coverLabel || 'L I S T E N') : 'S K I N   D E E P';
+  ctx.fillText(label, cx, pad + 22);
+
+  ctx.fillStyle = 'rgba(255,238,175,0.98)';
+  ctx.font = hasMedia ? '400 22px Georgia, serif' : '400 28px Georgia, serif';
+  ctx.shadowColor = 'rgba(255,200,80,0.18)';
+  ctx.shadowBlur = 14;
+  const titleLines = _wrapCanvasLines(ctx, (rec.title || 'UNTITLED').toUpperCase(), innerW - 8).slice(0, hasMedia ? 2 : 3);
+  const titleStartY = pad + (hasMedia ? 58 : 72);
+  const titleStep = hasMedia ? 28 : 34;
+  titleLines.forEach((ln, li) => ctx.fillText(ln, cx, titleStartY + li * titleStep));
+  ctx.shadowBlur = 0;
+
+  const waveY = hasMedia ? 168 : 190;
+  const waveH = hasMedia ? 168 : 140;
+  ctx.fillStyle = 'rgba(8,4,1,0.72)';
+  ctx.fillRect(pad + 6, waveY, innerW - 12, waveH);
+  ctx.strokeStyle = 'rgba(255,200,100,0.14)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pad + 6, waveY, innerW - 12, waveH);
+
+  _drawEmbedWaveform(ctx, pad + 16, waveY + 18, innerW - 32, waveH - 36, i * 17 + 3, hasMedia);
+  if (hasMedia) _drawEmbedPlayGlyph(ctx, cx, waveY + waveH * 0.5, 30);
+
+  if (hasMedia && rec.subtitle) {
+    ctx.fillStyle = 'rgba(255,200,100,0.48)';
+    ctx.font = '400 12px Georgia, serif';
+    ctx.fillText(rec.subtitle.toUpperCase(), cx, waveY + waveH + 28);
+  }
+
+  // Player chrome — scrub bar + faux transport dots
+  const barY = S - pad - 18;
+  ctx.strokeStyle = 'rgba(255,200,100,0.16)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad + 8, barY); ctx.lineTo(S - pad - 8, barY); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,200,100,0.55)';
+  ctx.fillRect(pad + 8, barY - 2, innerW * 0.34, 4);
+  ctx.fillStyle = 'rgba(255,200,100,0.22)';
+  for (let d = 0; d < 3; d++) {
+    ctx.beginPath(); ctx.arc(S - pad - 22 - d * 14, barY, 2.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  if (!hasMedia) {
+    ctx.fillStyle = 'rgba(255,200,100,0.38)';
+    ctx.font = '400 12px Georgia, serif';
+    ctx.fillText('RECORDINGS', cx, S - pad + 4);
+  }
 
   return new THREE.CanvasTexture(cv);
 }
 
-function makeRecordBackTex(i, title) {
+function makeVinylCardBackTex(rec, i, tracklist) {
   const S = 512;
+  const SS = 2;
   const cv = document.createElement('canvas');
-  cv.width = cv.height = S;
+  cv.width = cv.height = S * SS;
   const ctx = cv.getContext('2d');
+  ctx.scale(SS, SS);
+  _drawGoldCardChrome(ctx, S, S);
 
-  ctx.fillStyle = 'rgb(10,7,4)';
-  ctx.fillRect(0, 0, S, S);
-  ctx.strokeStyle = 'rgba(255,200,100,0.25)';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(20, 20, S - 40, S - 40);
-
+  const pad = 52;
   ctx.textAlign = 'left';
-  ctx.fillStyle = 'rgba(255,235,170,0.95)';
-  ctx.font = '700 30px Georgia, serif';
-  ctx.fillText((title || 'UNTITLED').toUpperCase(), 46, 78);
+  ctx.textBaseline = 'alphabetic';
 
-  ctx.strokeStyle = 'rgba(255,200,100,0.2)';
+  ctx.fillStyle = 'rgba(255,200,100,0.42)';
+  ctx.font = '400 11px Georgia, serif';
+  ctx.fillText('T R A C K L I S T', pad, pad + 22);
+
+  ctx.fillStyle = 'rgba(255,238,175,0.98)';
+  ctx.font = '400 24px Georgia, serif';
+  ctx.shadowColor = 'rgba(255,200,80,0.18)';
+  ctx.shadowBlur = 12;
+  const titleLines = _wrapCanvasLines(ctx, (rec.title || 'UNTITLED').toUpperCase(), S - pad * 2).slice(0, 2);
+  titleLines.forEach((ln, li) => ctx.fillText(ln, pad, pad + 58 + li * 30));
+  ctx.shadowBlur = 0;
+
+  ctx.strokeStyle = 'rgba(255,200,100,0.22)';
   ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(46, 96); ctx.lineTo(S - 46, 96); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad, pad + 98); ctx.lineTo(S - pad, pad + 98); ctx.stroke();
 
-  ctx.fillStyle = 'rgba(255,200,100,0.5)';
-  ctx.font = '400 16px Georgia, serif';
-  ctx.fillText('SIDE A', 46, 132);
-
-  ctx.font = '400 20px Georgia, serif';
-  for (let t = 0; t < 6; t++) {
-    const y = 172 + t * 42;
-    ctx.fillStyle = 'rgba(255,210,135,0.8)';
-    ctx.fillText((t + 1) + '.', 46, y);
-    ctx.strokeStyle = 'rgba(255,200,100,0.18)';
-    ctx.beginPath(); ctx.moveTo(86, y - 6); ctx.lineTo(S - 60, y - 6); ctx.stroke();
+  const rows = tracklist && tracklist.length ? tracklist.slice(0, 8) : null;
+  ctx.font = rows ? '400 14px Georgia, serif' : '400 18px Georgia, serif';
+  const rowCount = rows ? rows.length : 6;
+  for (let t = 0; t < rowCount; t++) {
+    const y = pad + 132 + t * (rows ? 34 : 40);
+    ctx.fillStyle = 'rgba(255,210,135,0.82)';
+    if (rows) {
+      const tr = rows[t];
+      const line = (tr.time ? tr.time + '  ' : '') + (tr.artist || '') + (tr.title ? ' — ' + tr.title : '');
+      const clipped = line.length > 36 ? line.slice(0, 34) + '…' : line;
+      ctx.fillText((t + 1) + '. ' + clipped, pad, y);
+    } else {
+      ctx.fillText((t + 1) + '.', pad, y);
+      ctx.strokeStyle = 'rgba(255,200,100,0.16)';
+      ctx.beginPath(); ctx.moveTo(pad + 34, y - 6); ctx.lineTo(S - pad, y - 6); ctx.stroke();
+    }
   }
 
-  ctx.fillStyle = 'rgba(255,200,100,0.32)';
-  ctx.font = '400 14px Georgia, serif';
-  ctx.fillText('SKIN DEEP RECORDINGS  ·  SD-00' + (i + 1), 46, S - 40);
+  ctx.fillStyle = 'rgba(255,200,100,0.36)';
+  ctx.font = '400 12px Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(rows ? 'NTS RADIO' : ('SKIN DEEP RECORDINGS  ·  SD-00' + (i + 1)), S / 2, S - pad + 4);
 
   return new THREE.CanvasTexture(cv);
 }
@@ -1288,19 +1547,36 @@ const EXHIBITS = [
   },
 ];
 
-// Vinyl crate exhibit — triggered by floater 3 (the pink torus). Cover/back art is
-// procedural for now. To use real art later, set `paths`/`backPaths` to square image
-// files and load them in _buildVinylAssets the same way loadExhibitTextures() does.
+// Vinyl crate exhibit — triggered by floater 3 (the pink torus). Record faces use the
+// same gold card palette as the photo exhibits; the front is a stylised embed preview.
+// Record animation schema (for reference when adding new records):
+// Each entry in VINYL.records drives one 3D card in the crate.
+// Required fields:
+//   title        {string}  — displayed on the card face and in the media panel header
+//   subtitle     {string}  — secondary line (date, city, etc.)
+//   coverLabel   {string}  — small label printed across the top of the cover art
+// Optional media fields (omit for a plain sleeve with no embed):
+//   soundcloudSrc {string} — SoundCloud widget iframe src; presence enables the pull-out player
+//   ntsUrl        {string} — "Listen on NTS" href shown in the pulled panel
+//   tracklist     {Array}  — [ { time, artist, title }, ... ] rows rendered in the tracklist tab
+// Animation behaviour (controlled by constants + animate() crate tick):
+//   Resting   — each record sits at a fixed depth slot (CRATE_REC_SPACING apart) fully upright.
+//               The selected record rises straight up by RECORD_LIFT.
+//   Browsing  — arrow keys / swipe shift crateSelIdx; the selected record smoothly lerps to the
+//               lifted position while others return to their slots (spring k = dt*9).
+//   Pull-out  — Space/E triggers _cratePull(): record is detached from the crate group into world
+//               space and slerped toward the focus target (EXHIBIT_FOCUS_DUR seconds, smoothstep).
+//               The vinyl disc slides out by DISC_OUT during flight.
+//   Pulled    — if the record has no media: it stays in world space and can be flipped 180deg
+//               around Y (crateFlipT lerps 0→1 at dt*7).  With media: the 3D sleeve is hidden
+//               and the HTML vinyl panel takes over.
+//   Return    — _crateReturn() runs the same slerp in reverse (EXHIBIT_FOCUS_DUR), then
+//               re-parents the record into the crate group at its resting slot.
+//   Open/Close — the whole crateGroup scales from 0.04 → 1 (CRATE_OPEN_DUR) and back (CRATE_CLOSE_DUR)
+//               with a smoothstep curve.  The group also bobs on Y: sin(t*1.4)*0.03.
 const VINYL = {
   floaterIdx: 3,
-  // paths:     ['images/vinyl/rec1.jpg', 'images/vinyl/rec2.jpg', ...],
-  // backPaths: ['images/vinyl/rec1-back.jpg', ...],
-  records: [
-    { title: 'Phase One' },
-    { title: 'Nocturne' },
-    { title: 'Resonance' },
-    { title: 'Afterglow' },
-  ],
+  records: [],
   discTex: null,
   crateWoodV: null,
   crateWoodH: null,
@@ -1311,16 +1587,9 @@ function _buildVinylAssets() {
   if (VINYL._built) return;
   VINYL._built = true;
   VINYL.records.forEach((r, i) => {
-    if (VINYL.paths && VINYL.paths[i]) {
-      r.coverTex = _configExhibitTex(_texLoader.load(VINYL.paths[i]));
-    } else {
-      r.coverTex = makeRecordCoverTex(i, r.title);
-    }
-    if (VINYL.backPaths && VINYL.backPaths[i]) {
-      r.backTex = _configExhibitTex(_texLoader.load(VINYL.backPaths[i]));
-    } else {
-      r.backTex = makeRecordBackTex(i, r.title);
-    }
+    r.coverTex = makeVinylCardFrontTex(r, i);
+    r.coverUrl = r.coverTex.image.toDataURL();
+    r.backTex = makeVinylCardBackTex(r, i, r.tracklist);
   });
   VINYL.discTex = makeVinylDiscTex();
   VINYL.crateWoodV = makeCrateWoodTextures('v');
@@ -1743,12 +2012,16 @@ const RECORD_LEAN       = 0;     // records stand fully upright so they never ti
 const RECORD_LIFT       = 1.45;  // browsing: selected record raised straight up, clearing the row
 const DISC_PEEK         = RECORD_SIZE * 0.13;  // how far the disc peeks above the sleeve
 const DISC_OUT          = RECORD_SIZE * 0.3;   // extra slide-out when a record is pulled
+const VINYL_FOCUS_SCALE = isMobile ? 0.44 : 0.5;
+const VINYL_FOCUS_Y_OFF = isMobile ? 0.72 : 0.88;
 const _crateFwd  = new THREE.Vector3();
 const _crateTmpV = new THREE.Vector3();
 const _crateTmpQ = new THREE.Quaternion();
 const _crateFlipQ = new THREE.Quaternion();
 const _crateUpY  = new THREE.Vector3(0, 1, 0);
 const _crateEuler = new THREE.Euler();
+const _previewV1 = new THREE.Vector3();
+const _previewV2 = new THREE.Vector3();
 
 // ══════════════════════════════════════════
 //  INPUT
@@ -2158,6 +2431,19 @@ function _computeExhibitFocusTarget(outPos, outQuat, panelW, panelH) {
   _focusBasis.makeBasis(_rgt, _fwd, _panelWp);
   outQuat.setFromRotationMatrix(_focusBasis);
   return _exhibitFocusScale(panelW, panelH);
+}
+
+function _computeVinylFocusTarget(outPos, outQuat, panelW, panelH) {
+  const fs = _computeExhibitFocusTarget(outPos, outQuat, panelW, panelH);
+  _fwd.setFromMatrixColumn(camera.matrixWorld, 1);
+  outPos.addScaledVector(_fwd, VINYL_FOCUS_Y_OFF);
+  return fs * VINYL_FOCUS_SCALE;
+}
+
+function _crateRecordFocusScale(rec) {
+  return _vinylRecHasMedia(rec)
+    ? _computeVinylFocusTarget(_focusToPos, _focusToQuat, RECORD_SIZE, RECORD_SIZE)
+    : _computeExhibitFocusTarget(_focusToPos, _focusToQuat, RECORD_SIZE, RECORD_SIZE);
 }
 
 function _applyExhibitFocusView(mesh) {
@@ -2623,7 +2909,10 @@ function _disposeCrateObject(obj) {
 }
 
 function _closeCrate() {
+  _hideVinylMedia();
   if (crateRecords.length) {
+    // Restore all sleeve visibility before disposal (overlay may have hidden them).
+    crateRecords.forEach((r, i) => _setCrateSleeveVisible(i, true));
     // A pulled-out record may be parented to the scene; remove it explicitly.
     crateRecords.forEach(r => { if (r.parent && r.parent !== crateGroup) r.parent.remove(r); });
   }
@@ -2655,15 +2944,45 @@ function _crateStartClose() {
   _restoreExhibitFloater();
 }
 
+// Show or hide the 3D sleeve + disc for a record by index.
+function _setCrateSleeveVisible(idx, visible) {
+  const grp = crateRecords[idx];
+  if (!grp) return;
+  if (grp.userData.sleeve) grp.userData.sleeve.visible = visible;
+  if (grp.userData.disc)   grp.userData.disc.visible   = visible;
+}
+
+// Show the SoundCloud embed overlaid directly on the 3D card face while browsing.
+// Hides the 3D sleeve behind it so only the HTML card is visible.
+// Called whenever the selected record changes or browsing begins/resumes.
+function _syncCratePreview() {
+  const rec = VINYL.records[crateSelIdx];
+  if (_vinylRecHasMedia(rec)) {
+    _setCrateSleeveVisible(crateSelIdx, false);
+    _showVinylMedia(rec, true);
+    _positionPanelOnCard();
+  } else {
+    _setCrateSleeveVisible(crateSelIdx, true);
+    _hideVinylMedia();
+  }
+}
+
 function _crateFlip(dir) {
   if (cratePhase !== 'browsing' || crateFocusPhase) return;
+  // Restore the outgoing record's 3D sleeve before switching selection.
+  _setCrateSleeveVisible(crateSelIdx, true);
   const n = crateRecords.length;
   crateSelIdx = Math.max(0, Math.min(n - 1, crateSelIdx + dir));
+  _syncCratePreview();
 }
 
 function _cratePull() {
   if (cratePhase !== 'browsing' || crateFocusPhase) return;
   const r = crateRecords[crateSelIdx];
+  // Restore the sleeve so it's visible during the pull-out flight animation.
+  // It gets re-hidden by _showVinylMedia once the record is fully pulled.
+  _setCrateSleeveVisible(crateSelIdx, true);
+  _hideVinylMedia();
   scene.attach(r); // preserve world transform; animate in world space like exhibit focus
   r.getWorldPosition(_focusFromPos);
   _focusFromQuat.copy(r.quaternion);
@@ -2676,13 +2995,24 @@ function _cratePull() {
 
 function _crateFlipFace() {
   if (crateFocusPhase !== 'pulled') return;
+  const rec = VINYL.records[crateSelIdx];
+  // Media records hand off to the player card: toggle its tabs instead of
+  // physically flipping the (now hidden) 3D record. Others flip front/back.
+  if (_vinylRecHasMedia(rec)) {
+    _toggleVinylTab();
+    return;
+  }
   crateFlipped = !crateFlipped;
 }
 
 function _crateReturn() {
   if (crateFocusPhase !== 'pulled') return;
+  _hideVinylMedia();
   _hideFocusEscapeHint();
   const r = crateRecords[crateSelIdx];
+  // Restore the 3D record (hidden while the card was up) so it flies home.
+  if (r.userData.sleeve) r.userData.sleeve.visible = true;
+  if (r.userData.disc) r.userData.disc.visible = true;
   r.getWorldPosition(_focusFromPos);
   _focusFromQuat.copy(r.quaternion);
   _focusFromScale = r.scale.x;
@@ -2729,7 +3059,132 @@ const _elFocusEscapeHint  = document.getElementById('focus-escape-hint');
 const _elCrateBack        = document.getElementById('crate-back-btn');
 const _elExhibitPrev      = document.getElementById('exhibit-prev');
 const _elExhibitNext      = document.getElementById('exhibit-next');
+const _elVinylPanel       = document.getElementById('vinyl-media-panel');
+const _elVmpTitle         = document.getElementById('vmp-title');
+const _elVmpSubtitle      = document.getElementById('vmp-subtitle');
+const _elVmpIframe        = document.getElementById('vmp-iframe');
+const _elVmpNtsLink       = document.getElementById('vmp-nts-link');
+const _elVmpPlayerView    = document.getElementById('vmp-player-view');
+const _elVmpTracklistView = document.getElementById('vmp-tracklist-view');
+const _elVmpTracklist     = document.getElementById('vmp-tracklist');
+const _elVmpPreview       = document.getElementById('vmp-preview');
+const _elVmpTabPlayer     = document.getElementById('vmp-tab-player');
+const _elVmpTabTracklist  = document.getElementById('vmp-tab-tracklist');
 let   _focusEscapeTimer   = null;
+let   _currentVmpRec      = null;  // track loaded record to avoid iframe reloads
+
+function _vinylRecHasMedia(rec) {
+  return !!(rec && rec.soundcloudSrc);
+}
+
+let _vinylTab = 'player';
+
+function _setVinylTab(tab) {
+  if (!_elVmpPlayerView || !_elVmpTracklistView) return;
+  _vinylTab = tab === 'tracklist' ? 'tracklist' : 'player';
+  const onTracklist = _vinylTab === 'tracklist';
+  _elVmpPlayerView.classList.toggle('active', !onTracklist);
+  _elVmpTracklistView.classList.toggle('active', onTracklist);
+  _elVmpTabPlayer.classList.toggle('active', !onTracklist);
+  _elVmpTabTracklist.classList.toggle('active', onTracklist);
+  _elVmpTabPlayer.setAttribute('aria-selected', String(!onTracklist));
+  _elVmpTabTracklist.setAttribute('aria-selected', String(onTracklist));
+}
+
+function _toggleVinylTab() {
+  _setVinylTab(_vinylTab === 'player' ? 'tracklist' : 'player');
+}
+
+// overlay=true  → bare iframe overlaid directly on the 3D card face (browse mode).
+//                  Position is driven by _positionPanelOnCard() every frame.
+// overlay=false → full centred panel (title + tabs + embed) shown when pulled out.
+// Avoids reloading the SoundCloud iframe if the same record is already loaded.
+function _showVinylMedia(rec, overlay) {
+  if (!_elVinylPanel || !_vinylRecHasMedia(rec)) return;
+  const sameRec = _currentVmpRec === rec;
+  _currentVmpRec = rec;
+  if (_elVmpPreview) _elVmpPreview.src = rec.coverUrl || '';
+  _elVmpTitle.textContent = rec.title || '';
+  _elVmpSubtitle.textContent = rec.subtitle || '';
+  if (!sameRec) {
+    _elVmpIframe.src = rec.soundcloudSrc;
+    _elVmpNtsLink.href = rec.ntsUrl || '#';
+    _elVmpTracklist.innerHTML = '';
+    if (rec.tracklist) {
+      rec.tracklist.forEach(tr => {
+        const li = document.createElement('li');
+        const time = document.createElement('span');
+        time.className = 'vmp-time';
+        time.textContent = tr.time || '';
+        const artist = document.createElement('span');
+        artist.className = 'vmp-artist';
+        artist.textContent = tr.artist || '';
+        const track = document.createElement('span');
+        track.className = 'vmp-track';
+        track.textContent = tr.title || '';
+        li.append(time, artist, track);
+        _elVmpTracklist.appendChild(li);
+      });
+    }
+    if (!overlay) _setVinylTab('player');
+  }
+  if (overlay) {
+    _elVinylPanel.classList.add('card-overlay');
+  } else {
+    // Promote: clear overlay inline styles, restore full centred panel.
+    _elVinylPanel.classList.remove('card-overlay');
+    _elVinylPanel.style.left = '';
+    _elVinylPanel.style.top = '';
+    _elVinylPanel.style.width = '';
+    _elVinylPanel.style.height = '';
+    _elVinylPanel.style.transform = '';
+  }
+  _elVinylPanel.classList.add('visible');
+  _elVinylPanel.setAttribute('aria-hidden', 'false');
+}
+
+// Projects the selected record's world centre to screen space and sizes the
+// overlay panel to match the card face. Called every frame while card-overlay.
+function _positionPanelOnCard() {
+  if (!crateRecords.length || !_elVinylPanel) return;
+  const rec3d = crateRecords[crateSelIdx];
+  if (!rec3d) return;
+
+  // Centre of card
+  rec3d.getWorldPosition(_previewV1);
+  _previewV2.copy(_previewV1).project(camera);
+  const sx = (_previewV2.x + 1) * 0.5 * window.innerWidth;
+  const sy = (1 - _previewV2.y) * 0.5 * window.innerHeight;
+
+  // Top edge of card to measure screen-space half-height
+  _previewV1.y += RECORD_SIZE * 0.5;
+  _previewV1.project(camera);
+  const sy2 = (1 - _previewV1.y) * 0.5 * window.innerHeight;
+  const cardPx = Math.abs(sy - sy2) * 2;
+
+  _elVinylPanel.style.left   = sx + 'px';
+  _elVinylPanel.style.top    = sy + 'px';
+  _elVinylPanel.style.width  = cardPx + 'px';
+  _elVinylPanel.style.height = cardPx + 'px';
+  _elVinylPanel.style.transform = 'translate(-50%, -50%)';
+}
+
+function _hideVinylMedia() {
+  if (!_elVinylPanel) return;
+  _currentVmpRec = null;
+  _elVinylPanel.classList.remove('visible', 'card-overlay');
+  _elVinylPanel.style.left = '';
+  _elVinylPanel.style.top = '';
+  _elVinylPanel.style.width = '';
+  _elVinylPanel.style.height = '';
+  _elVinylPanel.style.transform = '';
+  _elVinylPanel.setAttribute('aria-hidden', 'true');
+  if (_elVmpIframe) _elVmpIframe.src = '';
+  _setVinylTab('player');
+}
+
+if (_elVmpTabPlayer) _elVmpTabPlayer.addEventListener('click', () => _setVinylTab('player'));
+if (_elVmpTabTracklist) _elVmpTabTracklist.addEventListener('click', () => _setVinylTab('tracklist'));
 
 function _showFocusEscapeHint() {
   _elFocusEscapeHint.innerHTML = isMobile
@@ -2747,10 +3202,12 @@ function _hideFocusEscapeHint() {
 }
 
 function _showCrateHint(state) {
+  const rec = VINYL.records[crateSelIdx];
+  const hasMedia = _vinylRecHasMedia(rec);
   if (state === 'pulled') {
     _elFocusEscapeHint.innerHTML = isMobile
-      ? `<span class="feh-label">tap to flip</span>`
-      : `<span class="feh-key">spc</span><span class="feh-label">flip</span><span class="feh-key">esc</span><span class="feh-label">back</span>`;
+      ? `<span class="feh-label">tap to ${hasMedia ? 'switch tabs' : 'flip sleeve'}</span>`
+      : `<span class="feh-key">spc</span><span class="feh-label">${hasMedia ? 'player / tracklist' : 'flip'}</span><span class="feh-key">esc</span><span class="feh-label">back</span>`;
   } else { // browsing
     _elFocusEscapeHint.innerHTML = isMobile
       ? `<span class="feh-label">swipe to dig</span><span class="feh-label" style="opacity:0.4">&middot;</span><span class="feh-label">tap to lift</span>`
@@ -3268,7 +3725,7 @@ function animate() {
       crateT = Math.min(1, crateT + dt / CRATE_OPEN_DUR);
       const s = crateT * crateT * (3 - 2 * crateT);
       if (crateGroup) crateGroup.scale.setScalar(0.04 + s * 0.96);
-      if (crateT >= 1) cratePhase = 'browsing';
+      if (crateT >= 1) { cratePhase = 'browsing'; _syncCratePreview(); }
     } else if (cratePhase === 'closing') {
       crateT = Math.max(0, crateT - dt / CRATE_CLOSE_DUR);
       const s = crateT * crateT * (3 - 2 * crateT);
@@ -3278,6 +3735,12 @@ function animate() {
 
     if (crateGroup) {
       crateGroup.position.y = CRATE_Y + Math.sin(t * 1.4) * 0.03;
+
+      // Keep the card-overlay iframe locked to the 3D card face every frame.
+      if (cratePhase === 'browsing' && !crateFocusPhase &&
+          _elVinylPanel && _elVinylPanel.classList.contains('card-overlay')) {
+        _positionPanelOnCard();
+      }
 
       // Fan the records toward their crate-digging targets (skip the focused one)
       const k = Math.min(1, dt * 9);
@@ -3302,23 +3765,42 @@ function animate() {
         if (crateFocusPhase === 'pulling') {
           crateFocusT = Math.min(1, crateFocusT + dt / EXHIBIT_FOCUS_DUR);
           const s = crateFocusT * crateFocusT * (3 - 2 * crateFocusT);
-          const fs = _computeExhibitFocusTarget(_focusToPos, _focusToQuat, RECORD_SIZE, RECORD_SIZE);
+          const rec = VINYL.records[crateSelIdx];
+          const fs = _crateRecordFocusScale(rec);
           r.position.lerpVectors(_focusFromPos, _focusToPos, s);
           _focusLerpQuat.slerpQuaternions(_focusFromQuat, _focusToQuat, s);
           r.quaternion.copy(_focusLerpQuat);
           r.scale.setScalar(_focusFromScale + (fs - _focusFromScale) * s);
+          r.renderOrder = 200;
           ud.discOut += (DISC_OUT - ud.discOut) * k;
           ud.disc.position.y = DISC_PEEK + ud.discOut;
-          if (crateFocusT >= 1) { crateFocusPhase = 'pulled'; _showCrateHint('pulled'); }
+          if (crateFocusT >= 1) {
+            crateFocusPhase = 'pulled';
+            if (_vinylRecHasMedia(rec)) {
+              // Promote from card-overlay to full centred panel (no iframe reload).
+              _showVinylMedia(rec, false);
+              // Hand off to the unified card: hide the 3D record so the HTML
+              // player card is the single visual.
+              if (ud.sleeve) ud.sleeve.visible = false;
+              if (ud.disc) ud.disc.visible = false;
+            }
+            _showCrateHint('pulled');
+          }
         } else if (crateFocusPhase === 'pulled') {
-          const fs = _computeExhibitFocusTarget(_focusToPos, _focusToQuat, RECORD_SIZE, RECORD_SIZE);
-          crateFlipT += ((crateFlipped ? 1 : 0) - crateFlipT) * Math.min(1, dt * 7);
-          _crateFlipQ.setFromAxisAngle(_crateUpY, Math.PI * crateFlipT);
-          _crateTmpQ.copy(_focusToQuat).multiply(_crateFlipQ);
-          r.position.copy(_focusToPos);
-          r.quaternion.copy(_crateTmpQ);
-          r.scale.setScalar(fs);
-          ud.disc.position.y = DISC_PEEK + DISC_OUT;
+          const rec = VINYL.records[crateSelIdx];
+          // Media records are represented by the centred HTML card (CSS-positioned),
+          // so the hidden 3D record needs no per-frame work. Others flip in 3D.
+          if (!_vinylRecHasMedia(rec)) {
+            const fs = _crateRecordFocusScale(rec);
+            crateFlipT += ((crateFlipped ? 1 : 0) - crateFlipT) * Math.min(1, dt * 7);
+            _crateFlipQ.setFromAxisAngle(_crateUpY, Math.PI * crateFlipT);
+            _crateTmpQ.copy(_focusToQuat).multiply(_crateFlipQ);
+            r.position.copy(_focusToPos);
+            r.quaternion.copy(_crateTmpQ);
+            r.scale.setScalar(fs);
+            r.renderOrder = 200;
+            ud.disc.position.y = DISC_PEEK + DISC_OUT;
+          }
         } else if (crateFocusPhase === 'returning') {
           crateFocusT = Math.min(1, crateFocusT + dt / EXHIBIT_FOCUS_DUR);
           const s = crateFocusT * crateFocusT * (3 - 2 * crateFocusT);
@@ -3338,11 +3820,12 @@ function animate() {
             r.position.set(0, RECORD_BASE_Y + tgt.lift, tgt.z);
             r.rotation.set(tgt.lean, 0, 0);
             r.scale.setScalar(1);
-            ud.lean = tgt.lean; ud.z = tgt.z; ud.lift = tgt.lift; ud.discOut = 0;
             r.renderOrder = tgt.lift > 0.02 ? 1 : 0;
+            ud.lean = tgt.lean; ud.z = tgt.z; ud.lift = tgt.lift; ud.discOut = 0;
             ud.disc.position.y = DISC_PEEK;
             crateFocusPhase = null;
             crateFocusT = 0;
+            _syncCratePreview();
             _showCrateHint('browsing');
           }
         }
