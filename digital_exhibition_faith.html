@@ -945,32 +945,277 @@ function makeVinylDiscTex() {
   return tex;
 }
 
-// Dark wooden crate side panel.
-function makeCrateTex() {
-  const S = 256;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = S;
-  const ctx = cv.getContext('2d');
+// Seeded PRNG so crate wood looks identical every load.
+function _crateRand(seed) {
+  let s = seed | 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) | 0;
+    return (s >>> 0) / 4294967296;
+  };
+}
 
-  ctx.fillStyle = '#3a2516';
-  ctx.fillRect(0, 0, S, S);
+function _crateWoodRGB(rand, bias) {
+  const v = 0.68 + rand() * 0.2 + (bias || 0);
+  const r = Math.min(255, (38 + rand() * 34) * v);
+  const g = Math.min(255, (10 + rand() * 14) * v);
+  const b = Math.min(255, (5 + rand() * 9) * v);
+  return `rgb(${r | 0},${g | 0},${b | 0})`;
+}
 
-  for (let p = 0; p < 4; p++) {
-    const y = p * (S / 4);
-    const shade = 26 + (p % 2) * 10;
-    ctx.fillStyle = `rgb(${shade + 30},${shade + 14},${shade})`;
-    ctx.fillRect(0, y + 2, S, S / 4 - 4);
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(0, y + 2, S, S / 4 - 4);
-    for (let g = 0; g < 14; g++) {
-      ctx.strokeStyle = `rgba(20,12,6,${0.08 + Math.random() * 0.1})`;
-      ctx.lineWidth = 1;
-      const gy = y + 6 + Math.random() * (S / 4 - 12);
-      ctx.beginPath(); ctx.moveTo(0, gy); ctx.bezierCurveTo(S * 0.3, gy + 3, S * 0.6, gy - 3, S, gy); ctx.stroke();
+function _strokeCratePath(ctx, bctx, vertical, x, y, w, h, gx, gy, wob, phase, dark, rand, thickMul) {
+  const mul = thickMul || 1;
+  const alpha = dark ? 0.11 + rand() * 0.2 : 0.045 + rand() * 0.09;
+  ctx.strokeStyle = dark ? `rgba(10,2,1,${alpha})` : `rgba(112,38,20,${alpha})`;
+  ctx.lineWidth = (dark ? 0.7 + rand() * 1.6 : 0.35 + rand() * 0.85) * mul;
+  ctx.beginPath();
+  if (vertical) {
+    ctx.moveTo(gx, y + 1);
+    for (let py = y + 1; py < y + h - 1; py += 4 + rand() * 5) {
+      ctx.lineTo(gx + Math.sin(py * 0.075 + phase) * wob, py);
+    }
+  } else {
+    ctx.moveTo(x + 1, gy);
+    for (let px = x + 1; px < x + w - 1; px += 4 + rand() * 5) {
+      ctx.lineTo(px, gy + Math.sin(px * 0.075 + phase) * wob);
     }
   }
-  return new THREE.CanvasTexture(cv);
+  ctx.stroke();
+  if (bctx) {
+    bctx.strokeStyle = dark ? `rgba(0,0,0,${0.09 + rand() * 0.14})` : `rgba(55,55,55,${0.03 + rand() * 0.04})`;
+    bctx.lineWidth = ctx.lineWidth;
+    bctx.beginPath();
+    if (vertical) {
+      bctx.moveTo(gx, y + 1);
+      for (let py = y + 1; py < y + h - 1; py += 4 + rand() * 5) {
+        bctx.lineTo(gx + Math.sin(py * 0.075 + phase) * wob, py);
+      }
+    } else {
+      bctx.moveTo(x + 1, gy);
+      for (let px = x + 1; px < x + w - 1; px += 4 + rand() * 5) {
+        bctx.lineTo(px, gy + Math.sin(px * 0.075 + phase) * wob);
+      }
+    }
+    bctx.stroke();
+  }
+}
+
+function _drawCrateGrain(ctx, bctx, x, y, w, h, vertical, rand) {
+  const fineN = Math.max(30, Math.floor((vertical ? w : h) * 3.6));
+  for (let i = 0; i < fineN; i++) {
+    const dark = rand() > 0.38;
+    const wob = 1.4 + rand() * 2.8;
+    const phase = rand() * Math.PI * 2;
+    if (vertical) {
+      const gx = x + 2 + rand() * (w - 4);
+      _strokeCratePath(ctx, bctx, vertical, x, y, w, h, gx, 0, wob, phase, dark, rand);
+    } else {
+      const gy = y + 2 + rand() * (h - 4);
+      _strokeCratePath(ctx, bctx, vertical, x, y, w, h, 0, gy, wob, phase, dark, rand);
+    }
+  }
+  const broadN = Math.max(7, Math.floor(fineN * 0.2));
+  for (let i = 0; i < broadN; i++) {
+    const dark = rand() > 0.25;
+    const wob = 3.5 + rand() * 6;
+    const phase = rand() * Math.PI * 2;
+    if (vertical) {
+      const gx = x + 4 + rand() * (w - 8);
+      _strokeCratePath(ctx, bctx, vertical, x, y, w, h, gx, 0, wob, phase, dark, rand, 2.4);
+    } else {
+      const gy = y + 4 + rand() * (h - 8);
+      _strokeCratePath(ctx, bctx, vertical, x, y, w, h, 0, gy, wob, phase, dark, rand, 2.4);
+    }
+  }
+}
+
+function _drawCrateKnot(ctx, bctx, cx, cy, r, rand) {
+  ctx.fillStyle = `rgba(8,2,1,${0.45 + rand() * 0.28})`;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, r * 1.15, r * 0.92, rand() * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = `rgba(28,8,4,${0.3 + rand() * 0.16})`;
+  for (let ring = 1; ring <= 4; ring++) {
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r * ring * 0.3, r * ring * 0.24, rand() * 0.35, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  if (bctx) {
+    bctx.fillStyle = 'rgba(0,0,0,0.48)';
+    bctx.beginPath();
+    bctx.ellipse(cx, cy, r * 1.15, r * 0.92, 0, 0, Math.PI * 2);
+    bctx.fill();
+  }
+}
+
+function _drawCrateNail(ctx, bctx, nx, ny) {
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.beginPath(); ctx.arc(nx, ny, 2.4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,235,200,0.1)';
+  ctx.beginPath(); ctx.arc(nx - 0.7, ny - 0.7, 0.75, 0, Math.PI * 2); ctx.fill();
+  if (bctx) {
+    bctx.fillStyle = 'rgba(0,0,0,0.22)';
+    bctx.beginPath(); bctx.arc(nx, ny, 2.4, 0, Math.PI * 2); bctx.fill();
+  }
+}
+
+function _drawCrateGap(ctx, bctx, x, y, w, h) {
+  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+  ctx.fillRect(x, y, w, h);
+  bctx.fillStyle = '#121212';
+  bctx.fillRect(x, y, w, h);
+}
+
+function _drawCratePlank(ctx, bctx, x, y, w, h, vertical, rand) {
+  ctx.fillStyle = _crateWoodRGB(rand, 0);
+  ctx.fillRect(x, y, w, h);
+  bctx.fillStyle = '#484848';
+  bctx.fillRect(x, y, w, h);
+
+  const bodyGrad = vertical
+    ? (() => {
+        const g = ctx.createLinearGradient(x, y, x + w, y);
+        g.addColorStop(0, 'rgba(0,0,0,0.18)');
+        g.addColorStop(0.5, 'rgba(90,28,14,0.08)');
+        g.addColorStop(1, 'rgba(0,0,0,0.2)');
+        return g;
+      })()
+    : (() => {
+        const g = ctx.createLinearGradient(x, y, x, y + h);
+        g.addColorStop(0, 'rgba(0,0,0,0.16)');
+        g.addColorStop(0.5, 'rgba(90,28,14,0.07)');
+        g.addColorStop(1, 'rgba(0,0,0,0.18)');
+        return g;
+      })();
+  ctx.fillStyle = bodyGrad;
+  ctx.fillRect(x, y, w, h);
+
+  const fade = vertical
+    ? (sy => {
+        const g = ctx.createLinearGradient(0, sy, 0, sy + h);
+        g.addColorStop(0, 'rgba(0,0,0,0.38)');
+        g.addColorStop(0.08, 'rgba(0,0,0,0)');
+        g.addColorStop(0.92, 'rgba(0,0,0,0)');
+        g.addColorStop(1, 'rgba(0,0,0,0.38)');
+        return g;
+      })(y)
+    : (sx => {
+        const g = ctx.createLinearGradient(sx, 0, sx + w, 0);
+        g.addColorStop(0, 'rgba(0,0,0,0.32)');
+        g.addColorStop(0.06, 'rgba(0,0,0,0)');
+        g.addColorStop(0.94, 'rgba(0,0,0,0)');
+        g.addColorStop(1, 'rgba(0,0,0,0.32)');
+        return g;
+      })(x);
+  ctx.fillStyle = fade;
+  ctx.fillRect(x, y, w, h);
+
+  _drawCrateGrain(ctx, bctx, x, y, w, h, vertical, rand);
+  if (rand() > 0.55) {
+    _drawCrateKnot(ctx, bctx, x + w * (0.25 + rand() * 0.5), y + h * (0.2 + rand() * 0.6), 5 + rand() * 10, rand);
+  }
+}
+
+// Procedural mahogany crate panels. `orient`: 'v' = vertical slats (walls), 'h' = floor boards.
+function makeCrateWoodTextures(orient) {
+  const S = 512;
+  const vertical = orient === 'v';
+  const cv = document.createElement('canvas');
+  const bcv = document.createElement('canvas');
+  cv.width = cv.height = bcv.width = bcv.height = S;
+  const ctx = cv.getContext('2d');
+  const bctx = bcv.getContext('2d');
+  const rand = _crateRand(vertical ? 90210 : 42173);
+
+  ctx.fillStyle = '#120604';
+  ctx.fillRect(0, 0, S, S);
+  bctx.fillStyle = '#2e2e2e';
+  bctx.fillRect(0, 0, S, S);
+
+  const gap = 6;
+  const frame = Math.round(S * (vertical ? 0.075 : 0.08));
+
+  if (vertical) {
+    const frameCol = _crateWoodRGB(rand, -0.18);
+    ctx.fillStyle = frameCol;
+    ctx.fillRect(0, 0, S, frame);
+    ctx.fillRect(0, S - frame, S, frame);
+    ctx.fillRect(0, 0, frame, S);
+    ctx.fillRect(S - frame, 0, frame, S);
+    bctx.fillStyle = '#3a3a3a';
+    bctx.fillRect(0, 0, S, frame);
+    bctx.fillRect(0, S - frame, S, frame);
+    bctx.fillRect(0, 0, frame, S);
+    bctx.fillRect(S - frame, 0, frame, S);
+    _drawCrateGrain(ctx, bctx, 0, 0, S, frame, false, rand);
+    _drawCrateGrain(ctx, bctx, 0, S - frame, S, frame, false, rand);
+
+    const slatN = 6;
+    const innerX = frame + 2;
+    const innerW = S - frame * 2 - 4;
+    const slatW = Math.floor((innerW - gap * (slatN - 1)) / slatN);
+    const slatY = frame + 3;
+    const slatH = S - frame * 2 - 6;
+    for (let i = 0; i < slatN; i++) {
+      const sx = innerX + i * (slatW + gap);
+      _drawCratePlank(ctx, bctx, sx, slatY, slatW, slatH, true, rand);
+      if (i < slatN - 1) _drawCrateGap(ctx, bctx, sx + slatW, slatY - 2, gap, slatH + 4);
+      if (i % 2 === 0) _drawCrateNail(ctx, bctx, sx + slatW * 0.5, slatY + 10);
+      if (i % 2 === 1) _drawCrateNail(ctx, bctx, sx + slatW * 0.5, slatY + slatH - 10);
+    }
+    _drawCrateNail(ctx, bctx, frame * 0.5, frame * 0.55);
+    _drawCrateNail(ctx, bctx, S - frame * 0.5, frame * 0.55);
+    _drawCrateNail(ctx, bctx, frame * 0.5, S - frame * 0.55);
+    _drawCrateNail(ctx, bctx, S - frame * 0.5, S - frame * 0.55);
+  } else {
+    const plankN = 5;
+    const plankH = Math.floor((S - gap * (plankN - 1) - 16) / plankN);
+    let py = 8;
+    for (let i = 0; i < plankN; i++) {
+      _drawCratePlank(ctx, bctx, 6, py, S - 12, plankH, false, rand);
+      if (i < plankN - 1) _drawCrateGap(ctx, bctx, 4, py + plankH, S - 8, gap);
+      if (i % 2 === 0) {
+        _drawCrateNail(ctx, bctx, 18, py + plankH * 0.35);
+        _drawCrateNail(ctx, bctx, S - 18, py + plankH * 0.35);
+      }
+      py += plankH + gap;
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(0, 0, S, 10);
+    ctx.fillRect(0, S - 10, S, 10);
+  }
+
+  // Dark wear marks in the grain.
+  for (let s = 0; s < 12; s++) {
+    const sx = rand() * S;
+    const sy = rand() * S;
+    const sw = 24 + rand() * 70;
+    ctx.strokeStyle = `rgba(0,0,0,${0.06 + rand() * 0.1})`;
+    ctx.lineWidth = 1 + rand() * 1.5;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + sw * (0.4 + rand()), sy + (rand() - 0.5) * 10);
+    ctx.stroke();
+  }
+
+  const glaze = ctx.createLinearGradient(0, 0, S, S);
+  glaze.addColorStop(0, 'rgba(72,16,8,0.16)');
+  glaze.addColorStop(0.45, 'rgba(0,0,0,0)');
+  glaze.addColorStop(1, 'rgba(40,8,4,0.22)');
+  ctx.fillStyle = glaze;
+  ctx.fillRect(0, 0, S, S);
+
+  const vig = ctx.createRadialGradient(S / 2, S / 2, S * 0.12, S / 2, S / 2, S * 0.8);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.34)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, S, S);
+
+  const map = new THREE.CanvasTexture(cv);
+  const bumpMap = new THREE.CanvasTexture(bcv);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  return { map, bumpMap };
 }
 
 const _texLoader = new THREE.TextureLoader();
@@ -1057,7 +1302,8 @@ const VINYL = {
     { title: 'Afterglow' },
   ],
   discTex: null,
-  crateTex: null,
+  crateWoodV: null,
+  crateWoodH: null,
   _built: false,
 };
 
@@ -1077,7 +1323,8 @@ function _buildVinylAssets() {
     }
   });
   VINYL.discTex = makeVinylDiscTex();
-  VINYL.crateTex = makeCrateTex();
+  VINYL.crateWoodV = makeCrateWoodTextures('v');
+  VINYL.crateWoodH = makeCrateWoodTextures('h');
 }
 
 function loadExhibitTextures() {
@@ -1484,12 +1731,16 @@ let _crateSwipeAcc   = 0;
 
 const CRATE_OPEN_DUR    = 0.5;
 const CRATE_CLOSE_DUR   = 0.35;
-const RECORD_SIZE       = 2.1;
-const RECORD_THICK      = 0.07;
-const CRATE_REC_SPACING = 0.24;
+const RECORD_SIZE       = 2.65;
+const RECORD_THICK      = 0.088;
+const CRATE_REC_SPACING = 0.14;  // depth gap between resting records (must exceed RECORD_THICK to avoid clipping)
 const CRATE_DIST        = 3.2;   // distance in front of player
-const CRATE_Y           = 1.05;  // crate group height off the floor
-const RECORD_BASE_Y     = 0.5;   // record centre height within the crate group
+const CRATE_Y           = 1.05;  // crate group height off the floor (sits closer to the ground)
+const CRATE_WALL_THICK  = 0.13;  // plank thickness for walls, rails, and corner posts
+const CRATE_BOTTOM_THICK = 0.12; // solid floor slab under the records
+const RECORD_BASE_Y     = 0.28;  // resting record centre height within the crate group (sits deep in the crate)
+const RECORD_LEAN       = 0;     // records stand fully upright so they never tilt into / clip each other
+const RECORD_LIFT       = 1.45;  // browsing: selected record raised straight up, clearing the row
 const DISC_PEEK         = RECORD_SIZE * 0.13;  // how far the disc peeks above the sleeve
 const DISC_OUT          = RECORD_SIZE * 0.3;   // extra slide-out when a record is pulled
 const _crateFwd  = new THREE.Vector3();
@@ -2192,50 +2443,101 @@ function _closeExhibit() {
 // ══════════════════════════════════════════
 //  VINYL CRATE
 // ══════════════════════════════════════════
-const _crateTgt = { z: 0, lean: 0 };
+const _crateTgt = { z: 0, lean: 0, lift: 0 };
 function _crateRecordTargets(i) {
-  // Fills a shared { z, lean } for record i relative to the selected record,
-  // producing the crate-digging fan: viewed records pile forward, upcoming lean back.
-  const rel = i - crateSelIdx;
-  if (rel === 0) { _crateTgt.z = 0.06; _crateTgt.lean = 0.05; }
-  else if (rel < 0) { _crateTgt.z = 0.22 + (-rel - 1) * 0.05; _crateTgt.lean = 0.92; }
-  else { _crateTgt.z = -0.06 - rel * CRATE_REC_SPACING; _crateTgt.lean = -0.5 - (rel - 1) * 0.04; }
+  // Every record rests at the SAME back-lean and a fixed depth slot, so cycling never
+  // rotates anything. Only the selected record moves: straight up on Y by RECORD_LIFT.
+  const n = crateRecords.length || VINYL.records.length;
+  const half = (n - 1) / 2;
+  _crateTgt.z = (half - i) * CRATE_REC_SPACING;  // index 0 nearest the player, later indices sit further back
+  _crateTgt.lean = RECORD_LEAN;                  // identical for all records -> no relative tilt
+  _crateTgt.lift = (i === crateSelIdx) ? RECORD_LIFT : 0;
   return _crateTgt;
+}
+
+const CRATE_WOOD_TILE = 0.52;
+
+function _crateFaceMat(faceW, faceH, horizontal) {
+  const src = horizontal ? VINYL.crateWoodH : VINYL.crateWoodV;
+  const map = src.map.clone();
+  const bumpMap = src.bumpMap.clone();
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  map.repeat.set(Math.max(1, faceW / CRATE_WOOD_TILE), Math.max(1, faceH / CRATE_WOOD_TILE));
+  bumpMap.repeat.copy(map.repeat);
+  return new THREE.MeshStandardMaterial({
+    map, bumpMap, bumpScale: 0.052,
+    roughness: 0.83, metalness: 0.015,
+    color: 0x6e3020,
+    side: THREE.DoubleSide,
+  });
 }
 
 function _buildCrateBox() {
   const g = new THREE.Group();
-  const innerW = RECORD_SIZE + 0.45;
-  const depth  = 1.5;
+  const innerW = RECORD_SIZE + 0.57;
+  const depth  = RECORD_SIZE * 0.714;
   const tall   = RECORD_SIZE * 0.72;   // back/side wall height
   const front  = RECORD_SIZE * 0.4;    // shorter front wall so records stay visible
-  const mat = new THREE.MeshStandardMaterial({ map: VINYL.crateTex, roughness: 0.9, metalness: 0.05, color: 0x9a7a5a, side: THREE.DoubleSide });
+  const T  = CRATE_WALL_THICK;
+  const BT = CRATE_BOTTOM_THICK;
+  const outerW = innerW + T * 2;
+  const outerD = depth + T * 2;
+  const floorY = -tall / 2;
+  const corner = T * 1.15;
 
-  const bottom = new THREE.Mesh(new THREE.PlaneGeometry(innerW, depth), mat);
-  bottom.rotation.x = -Math.PI / 2;
-  bottom.position.y = -tall / 2;
+  const bottomMat = _crateFaceMat(outerW, outerD, true);
+  const backMat   = _crateFaceMat(outerW, tall, false);
+  const frontMat  = _crateFaceMat(outerW, front, false);
+  const sideMat   = _crateFaceMat(depth, tall, false);
+  const railMat   = _crateFaceMat(outerW, T, false);
+  const cornerMat = _crateFaceMat(corner, tall, false);
+
+  const bottom = new THREE.Mesh(new THREE.BoxGeometry(outerW, BT, outerD), bottomMat);
+  bottom.position.y = floorY - BT / 2;
   g.add(bottom);
 
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(innerW, tall), mat);
-  back.position.set(0, 0, -depth / 2);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(outerW, tall, T), backMat);
+  back.position.set(0, 0, -depth / 2 - T / 2);
   g.add(back);
 
-  const frontW = new THREE.Mesh(new THREE.PlaneGeometry(innerW, front), mat);
-  frontW.position.set(0, -tall / 2 + front / 2, depth / 2);
+  const frontW = new THREE.Mesh(new THREE.BoxGeometry(outerW, front, T), frontMat);
+  frontW.position.set(0, floorY + front / 2, depth / 2 + T / 2);
   g.add(frontW);
 
-  const sideGeo = new THREE.PlaneGeometry(depth, tall);
-  const left = new THREE.Mesh(sideGeo, mat);
-  left.rotation.y = Math.PI / 2;
-  left.position.set(-innerW / 2, 0, 0);
+  const left = new THREE.Mesh(new THREE.BoxGeometry(T, tall, depth), sideMat);
+  left.position.set(-innerW / 2 - T / 2, 0, 0);
   g.add(left);
-  const right = new THREE.Mesh(sideGeo, mat);
-  right.rotation.y = -Math.PI / 2;
-  right.position.set(innerW / 2, 0, 0);
+  const right = new THREE.Mesh(new THREE.BoxGeometry(T, tall, depth), sideMat);
+  right.position.set(innerW / 2 + T / 2, 0, 0);
   g.add(right);
 
-  g.userData.parts = [bottom, back, frontW, left, right];
-  g.userData.boxMat = mat;
+  // Top rails — thicker lip along the upper edge of each wall panel.
+  const backRail = new THREE.Mesh(new THREE.BoxGeometry(outerW, T, T), railMat);
+  backRail.position.set(0, tall / 2 + T / 2, -depth / 2 - T / 2);
+  g.add(backRail);
+
+  const sideRailGeo = new THREE.BoxGeometry(T, T, depth + T * 2);
+  const leftRail = new THREE.Mesh(sideRailGeo, railMat);
+  leftRail.position.set(-innerW / 2 - T / 2, tall / 2 + T / 2, 0);
+  g.add(leftRail);
+  const rightRail = new THREE.Mesh(sideRailGeo, railMat);
+  rightRail.position.set(innerW / 2 + T / 2, tall / 2 + T / 2, 0);
+  g.add(rightRail);
+
+  const frontRail = new THREE.Mesh(new THREE.BoxGeometry(outerW, T, T), railMat);
+  frontRail.position.set(0, floorY + front + T / 2, depth / 2 + T / 2);
+  g.add(frontRail);
+
+  // Corner posts tie the frame together and sell the plank depth at every edge.
+  [[-1, -1], [-1, 1], [1, -1], [1, 1]].forEach(([sx, sz]) => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(corner, tall, corner), cornerMat);
+    post.position.set(sx * (innerW / 2 + T / 2), 0, sz * (depth / 2 + T / 2));
+    g.add(post);
+  });
+
+  g.userData.parts = [bottom, back, frontW, left, right, backRail, leftRail, rightRail, frontRail];
+  g.userData.boxMats = [bottomMat, backMat, frontMat, sideMat, railMat, cornerMat];
   return g;
 }
 
@@ -2260,7 +2562,7 @@ function _buildCrateRecord(rec) {
   grp.userData = {
     sleeve, disc, sleeveGeo, discGeo,
     mats: [edgeMat, coverMat, backMat, discMat],
-    lean: -0.5, z: -0.3, discOut: 0,
+    lean: -0.5, z: -0.3, lift: 0, discOut: 0,
   };
   return grp;
 }
@@ -2299,7 +2601,8 @@ function _openCrate(px, pz, openYaw) {
     const tgt = _crateRecordTargets(i);
     grp.userData.lean = tgt.lean;
     grp.userData.z = tgt.z;
-    grp.position.set(0, RECORD_BASE_Y, tgt.z);
+    grp.userData.lift = tgt.lift;
+    grp.position.set(0, RECORD_BASE_Y + tgt.lift, tgt.z);
     grp.rotation.x = tgt.lean;
     crateGroup.add(grp);
     return grp;
@@ -2984,9 +3287,11 @@ function animate() {
         const ud = r.userData;
         ud.lean += (tgt.lean - ud.lean) * k;
         ud.z    += (tgt.z - ud.z) * k;
+        ud.lift += (tgt.lift - ud.lift) * k;
         ud.discOut += (0 - ud.discOut) * k;
-        r.position.set(0, RECORD_BASE_Y, ud.z);
+        r.position.set(0, RECORD_BASE_Y + ud.lift, ud.z);
         r.rotation.set(ud.lean, 0, 0);
+        r.renderOrder = ud.lift > 0.02 ? 1 : 0;
         ud.disc.position.y = DISC_PEEK + ud.discOut;
       });
 
@@ -3019,7 +3324,7 @@ function animate() {
           const s = crateFocusT * crateFocusT * (3 - 2 * crateFocusT);
           const tgt = _crateRecordTargets(crateSelIdx);
           crateGroup.updateMatrixWorld();
-          _crateTmpV.set(0, RECORD_BASE_Y, tgt.z).applyMatrix4(crateGroup.matrixWorld);
+          _crateTmpV.set(0, RECORD_BASE_Y + tgt.lift, tgt.z).applyMatrix4(crateGroup.matrixWorld);
           _crateEuler.set(tgt.lean, 0, 0);
           _crateTmpQ.setFromEuler(_crateEuler).premultiply(crateGroup.quaternion);
           r.position.lerpVectors(_focusFromPos, _crateTmpV, s);
@@ -3030,10 +3335,11 @@ function animate() {
           ud.disc.position.y = DISC_PEEK + ud.discOut;
           if (crateFocusT >= 1) {
             crateGroup.attach(r);
-            r.position.set(0, RECORD_BASE_Y, tgt.z);
+            r.position.set(0, RECORD_BASE_Y + tgt.lift, tgt.z);
             r.rotation.set(tgt.lean, 0, 0);
             r.scale.setScalar(1);
-            ud.lean = tgt.lean; ud.z = tgt.z; ud.discOut = 0;
+            ud.lean = tgt.lean; ud.z = tgt.z; ud.lift = tgt.lift; ud.discOut = 0;
+            r.renderOrder = tgt.lift > 0.02 ? 1 : 0;
             ud.disc.position.y = DISC_PEEK;
             crateFocusPhase = null;
             crateFocusT = 0;
