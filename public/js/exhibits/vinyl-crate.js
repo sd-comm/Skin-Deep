@@ -1142,25 +1142,19 @@ registerExhibit({
     const crateAimedDisc = _getAimedCrateDisc();
     const crateCanFocus = !!crateAimedDisc;
 
-    // Disc aim reticle — locks onto the raised record's disc while browsing
+    // Focus prompt — follows the raised record's disc while browsing (no aim reticle)
     if (cratePhase === 'browsing' && !crateFocusPhase) {
       if (crateCanFocus) {
         crateAimedDisc.getWorldPosition(_panelWp);
         _panelWp.project(camera);
         const rx = (_panelWp.x * 0.5 + 0.5) * window.innerWidth;
         const ry = (-_panelWp.y * 0.5 + 0.5) * window.innerHeight;
-        _elAimReticle.style.left = rx + 'px';
-        _elAimReticle.style.top  = ry + 'px';
-        _elAimReticle.classList.add('visible');
-        _elAimReticle.classList.add('locked');
         _elPrompt.style.left = rx + 'px';
         _elPrompt.style.top  = (ry - 36) + 'px';
         _elIprLabel.textContent = isMobile ? 'tap to focus' : 'focus';
         _elIprIcon.innerHTML = isMobile ? `<svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,210,120,0.95)" stroke-width="1.5" width="16" height="16"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="rgba(255,180,60,0.35)"/></svg>` : `<span style="font-family:Georgia,serif;font-size:9px;letter-spacing:0.05em;color:rgba(255,220,140,0.95)">spc</span>`;
         _elPrompt.classList.add('visible');
       } else {
-        _elAimReticle.classList.remove('visible');
-        _elAimReticle.classList.remove('locked');
         _elPrompt.classList.remove('visible');
       }
     }
@@ -1183,8 +1177,7 @@ registerExhibit({
       else if (cratePhase && cratePhase !== 'closing') { _dismissCrate(); hidePrompt(); ctx.setCD(0.3); }
     } else if (ctx.eEdge && ctx.iCD <= 0) {
       if (crateCanFocus) {
-        _startCrateFocus(crateAimedDisc); hidePrompt();
-        _elAimReticle.classList.remove('visible', 'locked'); ctx.setCD(0.35);
+        _startCrateFocus(crateAimedDisc); hidePrompt(); ctx.setCD(0.35);
       } else if (isMobile && crateFocusPhase === 'focused') {
         _startCrateUnfocus(); hidePrompt(); ctx.setCD(0.35);
       } else if (isMobile && cratePhase === 'browsing' && !crateFocusPhase) {

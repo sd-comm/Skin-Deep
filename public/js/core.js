@@ -1111,7 +1111,7 @@ function showWelcomeCard() {
     : `<p>You're inside the Skin Deep digital exhibition: a quiet, liminal gallery.</p>
        <p>Drift up to any glowing object or spotlight and press <b>Space</b> to open its exhibit.</p>
        ${_divider}
-       <p>Inside, <b>read on screen instructions</b> for how to view pieces and play any media.</p>
+       <p>Inside, <b>read the on screen instructions</b> for how to view pieces and play any media.</p>
        <p>Press <b>Esc</b> or simply drift away to step back into the room.</p>`;
   _welcomeDismiss.textContent = isMobile ? 'Tap to begin' : 'Press Space to begin';
   _welcomeOverlay.classList.remove('hidden');
