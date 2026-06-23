@@ -35,6 +35,7 @@ const {
   setTriggerFloater, beginExhibitDPR, endExhibitDPR, setCD, hidePrompt,
   computeFocusTarget: _computeExhibitFocusTarget, syncCamera: _syncCamera,
   elMmWrap: _elMmWrap, elUi: _elUi, jZone: _jZone,
+  scheduleIdle,
 } = core;
 
 const CRT = {
@@ -905,21 +906,48 @@ function _buildCrtTv() {
   return g;
 }
 
-// Build the canvas textures + cache the model once.
+// Per-field build steps — each idempotent (skips a field already built), so they run either
+// all-at-once (_buildCrtAssets, the open-time fallback) or one-per-idle-tick (_crtIdlePrebuild,
+// the on-approach preload). The ExtrudeGeometry model + the panel canvas are the heavy ones.
+function _crtAssetSteps() {
+  return [
+    () => { if (!CRT.staticTex)   { CRT.staticTex   = makeCrtStaticTex();   _initTex(CRT.staticTex); } },
+    () => { if (!CRT.glareTex)    { CRT.glareTex    = makeCrtGlareTex();    _initTex(CRT.glareTex); } },
+    () => { if (!CRT.logoTex)     { CRT.logoTex     = new THREE.TextureLoader().load('images/skindeep/image.png', _initTex); } },
+    () => { if (!CRT.brushedTex)  { CRT.brushedTex  = makeCrtBrushedTex();  _initTex(CRT.brushedTex); } },
+    () => { if (!CRT.ventTex)     { CRT.ventTex     = makeCrtVentTex();     _initTex(CRT.ventTex); } },
+    () => { if (!CRT.badgeTex)    { CRT.badgeTex    = makeCrtBadgeTex();    _initTex(CRT.badgeTex); } },
+    () => { if (!CRT.haloTex)     { CRT.haloTex     = makeCrtHaloTex();     _initTex(CRT.haloTex); } },
+    () => { if (!CRT.dialGlowTex) { CRT.dialGlowTex = makeCrtDialGlowTex(); _initTex(CRT.dialGlowTex); } },
+    () => { if (!CRT.woodTex)     { CRT.woodTex     = makeCrtWoodTex();     _initTex(CRT.woodTex); } },
+    () => { if (!CRT.panelTex)    { CRT.panelTex    = makeCrtPanelTex();    CRT.panelTex.anisotropy = MAX_ANISO; _initTex(CRT.panelTex); } },
+    () => { if (!CRT._model)      { CRT._model      = _buildCrtTv(); } },
+  ];
+}
+
+// Synchronous build — the open-time fallback if the player opens before the idle preload finishes.
 function _buildCrtAssets() {
   if (CRT._built) return;
-  CRT.staticTex = makeCrtStaticTex(); _initTex(CRT.staticTex);
-  CRT.glareTex  = makeCrtGlareTex();  _initTex(CRT.glareTex);
-  CRT.logoTex   = new THREE.TextureLoader().load('images/skindeep/image.png', _initTex);
-  CRT.brushedTex = makeCrtBrushedTex(); _initTex(CRT.brushedTex);
-  CRT.woodTex   = makeCrtWoodTex();   _initTex(CRT.woodTex);
-  CRT.ventTex   = makeCrtVentTex();   _initTex(CRT.ventTex);
-  CRT.badgeTex  = makeCrtBadgeTex();  _initTex(CRT.badgeTex);
-  CRT.panelTex  = makeCrtPanelTex();  CRT.panelTex.anisotropy = MAX_ANISO; _initTex(CRT.panelTex);
-  CRT.haloTex   = makeCrtHaloTex();   _initTex(CRT.haloTex);
-  CRT.dialGlowTex = makeCrtDialGlowTex(); _initTex(CRT.dialGlowTex);
-  CRT._model = _buildCrtTv();
+  const steps = _crtAssetSteps();
+  for (let i = 0; i < steps.length; i++) steps[i]();
   CRT._built = true;
+}
+
+// On-approach preload (fired once by core's floater-loop proximity hook): build the assets one
+// slice per idle tick — so the first open is instant without a single long hitch during roam —
+// then pre-warm the tone-map shader programs.
+let _crtPrebuilding = false;
+function _crtIdlePrebuild() {
+  if (CRT._built || _crtPrebuilding) return;
+  _crtPrebuilding = true;
+  const steps = _crtAssetSteps();
+  let i = 0;
+  const step = () => {
+    if (i >= steps.length) { CRT._built = true; _prewarmCrtToneMap(); return; }
+    steps[i++]();
+    scheduleIdle(step);
+  };
+  scheduleIdle(step);
 }
 
 // ══ Tone-mapping override (mobile only) ══
@@ -964,9 +992,30 @@ function _restoreCrtToneMap() {
   _refreshSceneMaterials();
 }
 
+// Pre-compile the ACES tone-map shader variants once (mobile), during the on-approach idle
+// preload, so the scene-wide recompile that _applyCrtToneMap triggers is already cached when
+// the CRT actually opens — making the first open hitch-free. No visual change: toggle to ACES,
+// force the compile, then toggle straight back to the live NoToneMapping (whose variants were
+// already compiled at startup, so the restore is a cheap cached re-derive).
+let _crtToneWarmed = false;
+let _crtUIHidden = false;   // cached focus-hidden state so update() only toggles HUD classes on change
+function _prewarmCrtToneMap() {
+  if (!isMobile || _crtToneWarmed || crtPhase) return;
+  _crtToneWarmed = true;
+  const savedTM = renderer.toneMapping, savedExp = renderer.toneMappingExposure;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = CRT_TONEMAP_EXPOSURE;
+  _refreshSceneMaterials();
+  try { renderer.compile(scene, camera); } catch (e) {}   // compile + cache the ACES programs now
+  renderer.toneMapping = savedTM;
+  renderer.toneMappingExposure = savedExp;
+  _refreshSceneMaterials();   // back to the live (already-cached) NoToneMapping variants
+}
+
 function _openCrt(px, pz, openYaw) {
   if (crtPhase) return;
   _buildCrtAssets();
+  _crtPreconnect();   // warm the video hosts now; the iframe src is set later, on focus
   beginExhibitDPR();
 
   const fl = floaters[CRT.floaterIdx];
@@ -1030,6 +1079,7 @@ function _closeCrt() {
   crtPhase = null;
   crtT     = 0;
   _hideCrtHint();
+  _crtUIHidden = false;
   _elMmWrap.classList.remove('focus-hidden');
   _elUi?.classList.remove('focus-hidden');
   _jZone.classList.remove('focus-hidden');
@@ -1127,9 +1177,33 @@ function _fitCrtYtToScreen() {
     if (px < minX) minX = px; if (px > maxX) maxX = px;
     if (py < minY) minY = py; if (py > maxY) maxY = py;
   }
-  const s = _elCrtYt.style;
-  s.left = minX + 'px'; s.top = minY + 'px';
-  s.width = (maxX - minX) + 'px'; s.height = (maxY - minY) + 'px';
+  // While focused the camera is locked, so the projected corners barely move — only touch the
+  // iframe's layout when they actually changed (>0.5px), avoiding a per-frame style write.
+  const w = maxX - minX, h = maxY - minY;
+  if (Math.abs(minX - _ytFitL) > 0.5 || Math.abs(minY - _ytFitT) > 0.5 ||
+      Math.abs(w - _ytFitW) > 0.5 || Math.abs(h - _ytFitH) > 0.5) {
+    const s = _elCrtYt.style;
+    s.left = minX + 'px'; s.top = minY + 'px';
+    s.width = w + 'px'; s.height = h + 'px';
+    _ytFitL = minX; _ytFitT = minY; _ytFitW = w; _ytFitH = h;
+  }
+}
+// Last-written iframe rect, so _fitCrtYtToScreen can skip redundant style writes.
+let _ytFitL = -1, _ytFitT = -1, _ytFitW = -1, _ytFitH = -1;
+
+// Warm TCP/TLS to the video hosts the instant the CRT opens — well before the iframe src is
+// set on focus — so the first video starts faster. Done dynamically (not a static <head>
+// preconnect, which would expire long before anyone opens the TV). One-shot.
+let _crtPreconnected = false;
+function _crtPreconnect() {
+  if (_crtPreconnected) return;
+  _crtPreconnected = true;
+  ['https://www.youtube-nocookie.com', 'https://www.youtube.com', 'https://i.ytimg.com']
+    .forEach(href => {
+      const l = document.createElement('link');
+      l.rel = 'preconnect'; l.href = href; l.crossOrigin = '';
+      document.head.appendChild(l);
+    });
 }
 
 function _showCrtYt() {
@@ -1485,9 +1559,12 @@ registerExhibit({
 
     // Hide the HUD while the section is held in focus (matches the crate / MPC).
     const _focusUIHidden = crtFocusPhase === 'focusing' || crtFocusPhase === 'focused';
-    _elMmWrap.classList.toggle('focus-hidden', _focusUIHidden);
-    _elUi?.classList.toggle('focus-hidden', _focusUIHidden);
-    _jZone.classList.toggle('focus-hidden', _focusUIHidden);
+    if (_focusUIHidden !== _crtUIHidden) {
+      _crtUIHidden = _focusUIHidden;
+      _elMmWrap.classList.toggle('focus-hidden', _focusUIHidden);
+      _elUi?.classList.toggle('focus-hidden', _focusUIHidden);
+      _jZone.classList.toggle('focus-hidden', _focusUIHidden);
+    }
 
     // Faint static glow — one scalar nudge + a cheap texture crawl (no array writes)
     if (CRT.screenMat) CRT.screenMat.emissiveIntensity = 0.72 + Math.sin(ctx.t * 40) * 0.14 + Math.sin(ctx.t * 7.3) * 0.07;
@@ -1517,3 +1594,8 @@ registerExhibit({
     }
   },
 });
+
+// Pre-build the cabinet + textures (and warm the tone-map shaders) on approach, so the first
+// open is instant. core's floater-loop fires this once when the player nears the CRT floater,
+// then nulls it. Falls back to the synchronous _buildCrtAssets() in _openCrt if opened early.
+if (floaters[CRT.floaterIdx]) floaters[CRT.floaterIdx]._preload = _crtIdlePrebuild;

@@ -1935,6 +1935,9 @@ function animate() {
     // Proximity preload: warm this exhibit's photos + card as the player approaches, so the
     // carousel is decoded by the time they open it (the _loaded guard makes this a no-op once done).
     if (f._photoSpec && !f._photoSpec._loaded && dist2 < EXHIBIT_PRELOAD_R2) _loadExhibitTexturesFor(f._photoSpec);
+    // Generic one-shot preload hook any exhibit can attach to its floater (e.g. the CRT
+    // pre-builds its model + textures on approach so its first open is hitch-free).
+    if (f._preload && dist2 < EXHIBIT_PRELOAD_R2) { const fn = f._preload; f._preload = null; fn(); }
     // Advance tutorial when player reaches the octahedron
     if (tutStage === 3 && f === floaters[0] && dist2 < 7.84) _tutShow(4);
 
