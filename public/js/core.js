@@ -179,6 +179,20 @@ function _setTexAspect(tex, aspect) {
   tex.userData.aspect = aspect;
 }
 
+// Compute the UV rectangle covering a line of canvas text on an info-card texture, so the
+// carousel click handler can detect a click/tap on it (see the card-link listeners below).
+// `ctx` must already have the final font set; `cx` is the text's centre X and `baselineY`
+// its alphabetic baseline; W,H are the card's LOGICAL canvas size. CanvasTextures default to
+// flipY=true, so canvas (x,y) maps to UV (x/W, 1 - y/H). Returns { u0,v0,u1,v1 } in [0,1],
+// padded so the tap target is a touch larger than the glyphs.
+function _cardTextHotspot(ctx, text, cx, baselineY, W, H) {
+  const tw = ctx.measureText(text).width;
+  const PADX = 9, PADT = 15, PADB = 7;
+  const x0 = cx - tw / 2 - PADX, x1 = cx + tw / 2 + PADX;
+  const yTop = baselineY - PADT, yBot = baselineY + PADB;
+  return { u0: x0 / W, u1: x1 / W, v0: 1 - yBot / H, v1: 1 - yTop / H };
+}
+
 function _fitExhibitSize(aspect) {
   let w = EXHIBIT_W, h = w / aspect;
   if (h > EXHIBIT_H) { h = EXHIBIT_H; w = h * aspect; }
@@ -859,6 +873,8 @@ renderer.domElement.addEventListener('touchend', e => {
     delete _tapStarts[t.identifier];
     const dx = t.clientX - s.x, dy = t.clientY - s.y;
     if (Date.now() - s.t < 280 && dx*dx + dy*dy < 225) {
+      // A tap on the focused info-card's @handle opens the profile instead of unfocusing.
+      if (exhibitFocusPhase === 'focused' && _tryOpenExhibitLink(t.clientX, t.clientY)) continue;
       keys['KeyE'] = true;
       setTimeout(() => { keys['KeyE'] = false; }, 120);
     }
@@ -1103,12 +1119,12 @@ function _dismissWelcome() {
 function showWelcomeCard() {
   const _divider = `<canvas id="welcome-floaters-canvas"></canvas>`;
   _welcomeBody.innerHTML = isMobile
-    ? `<p>You're inside the Skin Deep digital exhibition: a quiet, liminal gallery.</p>
+    ? `<p>You're inside the Skin Deep digital exhibition: a quiet, expolorable gallery.</p>
        <p>Drift up to any glowing object or spotlight and <b>tap</b> it to open its exhibit.</p>
        ${_divider}
        <p>Inside, <b>swipe</b> to move between pieces and play any media.</p>
        <p><b>Tap away</b> or drift off to step back into the room.</p>`
-    : `<p>You're inside the Skin Deep digital exhibition: a quiet, liminal gallery.</p>
+    : `<p>You're inside the Skin Deep digital exhibition: a quiet, explorable gallery.</p>
        <p>Drift up to any glowing object or spotlight and press <b>Space</b> to open its exhibit.</p>
        ${_divider}
        <p>Inside, <b>read the on screen instructions</b> for how to view pieces and play any media.</p>
@@ -1755,6 +1771,50 @@ if (_elExhibitNext) {
   _elExhibitNext.addEventListener('touchmove', e => { e.stopPropagation(); }, { passive: false });
 }
 
+// ── Carousel info-card links ──
+// An info card's @handle is drawn into the card canvas with a UV hotspot recorded on its
+// texture (tex.userData.hotspots = [{ u0,v0,u1,v1, url }], built by the exhibit module via
+// core.cardTextHotspot). While that card is held in focus, a click (desktop) or tap (mobile)
+// that raycasts onto a hotspot opens that profile in a new tab. Only the focused panel is
+// tested, and only the card carries hotspots — photos return null and behave as before.
+const _linkRay = new THREE.Raycaster();
+const _linkNdc = new THREE.Vector2();
+function _exhibitHotspotAtClient(clientX, clientY) {
+  if (exhibitFocusPhase !== 'focused' || !exhibitPlanes) return null;
+  const p = exhibitPlanes[exhibitFocusIdx];
+  const hs = p && p.mat.map && p.mat.map.userData && p.mat.map.userData.hotspots;
+  if (!hs || !hs.length) return null;
+  _linkNdc.x = (clientX / window.innerWidth) * 2 - 1;
+  _linkNdc.y = -(clientY / window.innerHeight) * 2 + 1;
+  _linkRay.setFromCamera(_linkNdc, camera);
+  const hit = _linkRay.intersectObject(p.mesh, false)[0];
+  if (!hit || !hit.uv) return null;
+  const u = hit.uv.x, v = hit.uv.y;
+  for (const h of hs) if (u >= h.u0 && u <= h.u1 && v >= h.v0 && v <= h.v1) return h;
+  return null;
+}
+// Open the profile in a NEW TAB. window.open('_blank') always spawns a separate browsing
+// context — it can never replace this frame (the experience runs inside an <iframe> on the
+// Skin Deep site, so an in-place navigation would blank the app). If a popup blocker stops
+// it, it simply no-ops rather than navigating away. noopener keeps the new tab detached.
+// Returns true if a link was hit (so the caller can swallow the gesture).
+function _tryOpenExhibitLink(clientX, clientY) {
+  const h = _exhibitHotspotAtClient(clientX, clientY);
+  if (!h) return false;
+  window.open(h.url, '_blank', 'noopener,noreferrer');
+  return true;
+}
+if (renderer && renderer.domElement && !isMobile) {
+  renderer.domElement.addEventListener('click', e => {
+    if (exhibitFocusPhase === 'focused') _tryOpenExhibitLink(e.clientX, e.clientY);
+  });
+  // Cursor affordance — a pointer over a live handle, default elsewhere.
+  renderer.domElement.addEventListener('pointermove', e => {
+    const want = (exhibitFocusPhase === 'focused' && _exhibitHotspotAtClient(e.clientX, e.clientY)) ? 'pointer' : '';
+    if (renderer.domElement.style.cursor !== want) renderer.domElement.style.cursor = want;
+  });
+}
+
 // ══════════════════════════════════════════
 //  EXHIBITION REGISTRY
 // ══════════════════════════════════════════
@@ -1822,6 +1882,7 @@ const core = {
   registerExhibit,
   // texture / scheduling helpers
   initTex: _initTex,
+  cardTextHotspot: _cardTextHotspot,
   scheduleIdle: _scheduleIdle,
   showToast,
   // floater + exhibition lifecycle services

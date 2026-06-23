@@ -95,12 +95,20 @@ function makePhotographerCardTex() {
   ctx.moveTo(cx - 90, 298); ctx.lineTo(cx + 90, 298);
   ctx.stroke();
 
-  // Handle
-  ctx.fillStyle = 'rgba(255,200,100,0.38)';
+  // Handle — a live link to the Instagram profile (clickable while the card is focused)
+  const HANDLE = '@apyfz', HANDLE_URL = 'https://instagram.com/apyfz';
   ctx.font = '400 12px Georgia, serif';
-  ctx.fillText('@apyfz', cx, 330);
+  ctx.fillStyle = 'rgba(255,214,130,0.72)'; // brighter than the body text so it reads as a link
+  ctx.fillText(HANDLE, cx, 330);
+  const hw = ctx.measureText(HANDLE).width;  // underline cues that it's tappable (no hover on mobile)
+  ctx.strokeStyle = 'rgba(255,200,100,0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - hw/2, 334); ctx.lineTo(cx + hw/2, 334); ctx.stroke();
 
-  return new THREE.CanvasTexture(cv);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.userData = tex.userData || {}; // fresh textures can have undefined userData in this Three build
+  tex.userData.hotspots = [{ ...core.cardTextHotspot(ctx, HANDLE, cx, 330, W, H), url: HANDLE_URL }];
+  return tex;
 }
 
 registerPhotoExhibit({

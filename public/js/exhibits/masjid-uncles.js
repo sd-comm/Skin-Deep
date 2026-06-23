@@ -87,11 +87,42 @@ function makeMasjidUnclesCardTex() {
   ctx.moveTo(cx - 110, 294); ctx.lineTo(cx + 110, 294);
   ctx.stroke();
 
-  ctx.fillStyle = 'rgba(255,200,100,0.38)';
+  // Handles — two live links to the Instagram profiles (each clickable while the card is
+  // focused). Drawn as separate segments (left-aligned around a centred block) so each gets
+  // its own hotspot + underline; textAlign is restored to centre afterwards.
+  const H1 = '@peim786',      U1 = 'https://instagram.com/peim786';
+  const H2 = '@studioteski',  U2 = 'https://instagram.com/studioteski';
+  const SEP = '  ·  ';
   ctx.font = '400 12px Georgia, serif';
-  ctx.fillText('@peim786  ·  @studioteski', cx, 322);
+  const w1 = ctx.measureText(H1).width;
+  const wS = ctx.measureText(SEP).width;
+  const w2 = ctx.measureText(H2).width;
+  const yH = 322;
+  ctx.textAlign = 'left';
+  let x = cx - (w1 + wS + w2) / 2;        // left edge of the centred block
 
-  return new THREE.CanvasTexture(cv);
+  const drawLink = (text, leftX, w) => {  // link-bright fill + underline; returns its centre X
+    ctx.fillStyle = 'rgba(255,214,130,0.72)';
+    ctx.fillText(text, leftX, yH);
+    ctx.strokeStyle = 'rgba(255,200,100,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(leftX, yH + 4); ctx.lineTo(leftX + w, yH + 4); ctx.stroke();
+    return leftX + w / 2;
+  };
+
+  const cx1 = drawLink(H1, x, w1); x += w1;
+  ctx.fillStyle = 'rgba(255,200,100,0.38)';
+  ctx.fillText(SEP, x, yH); x += wS;
+  const cx2 = drawLink(H2, x, w2);
+  ctx.textAlign = 'center';
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.userData = tex.userData || {}; // fresh textures can have undefined userData in this Three build
+  tex.userData.hotspots = [
+    { ...core.cardTextHotspot(ctx, H1, cx1, yH, W, H), url: U1 },
+    { ...core.cardTextHotspot(ctx, H2, cx2, yH, W, H), url: U2 },
+  ];
+  return tex;
 }
 
 registerPhotoExhibit({
