@@ -12,14 +12,18 @@ function makeJummahCardTex() {
   // Mobile: a tall portrait card that fills the phone screen at focus (the landscape card below
   // reads tiny there). Same content, laid out vertically by the shared core renderer.
   if (window.matchMedia('(pointer: coarse)').matches) return core.buildInfoCardPortrait({
-    kicker: 'P H O T O   E S S A Y',
+    kicker: 'P H O T O   E X H I B I T I O N',
     title: ['Jummah Aesthetics'],
     titleSize: 38,
     tagline: 'British Muslim men & their sartorial choices',
     byline: 'Rehan Jamil  ·  curated by Dr Fatima Rajina',
     body: ['What men wear to Friday prayers at', 'four East London mosques: thobes,', 'kameez & streetwear as living faith.'],
     credits: 'Oxford House, Bethnal Green  ·  The Guardian',
-    handles: [{ handle: '@oxfordhouse1884', url: 'https://instagram.com/oxfordhouse1884' }],
+    handles: [
+      { handle: '@rehanwjamil', url: 'https://www.instagram.com/rehanwjamil/' },
+      { handle: '@fatima.rajina', url: 'https://www.instagram.com/fatima.rajina/' },
+    ],
+    links: [{ label: 'The Guardian', url: 'https://www.theguardian.com/fashion/2024/dec/03/go-bright-or-go-gucci-british-muslim-men-discuss-what-they-wear-to-friday-prayers' }],
   });
 
   const W = 512, H = 384;
@@ -100,16 +104,28 @@ function makeJummahCardTex() {
 
   ctx.strokeStyle = 'rgba(255,200,100,0.14)';
   ctx.beginPath();
-  ctx.moveTo(cx - 110, 294); ctx.lineTo(cx + 110, 294);
+  ctx.moveTo(cx - 110, 290); ctx.lineTo(cx + 110, 290);
   ctx.stroke();
 
-  // Handle — Instagram glyph + a live link to the profile, with a prompt; clickable while focused
-  const HANDLE = '@oxfordhouse1884', HANDLE_URL = 'https://instagram.com/oxfordhouse1884';
-  const hotspot = core.instagramLink(ctx, { handle: HANDLE, url: HANDLE_URL, cx, y: 320, W, H });
+  // Links — the photographer + curator Instagrams and the Guardian feature, each a live hotspot
+  // clickable while focused; per-row prompts suppressed in favour of one shared prompt beneath.
+  const ig1 = core.instagramLink(ctx, {
+    handle: '@rehanwjamil', url: 'https://www.instagram.com/rehanwjamil/', cx, y: 308, W, H, noPrompt: true,
+  });
+  const ig2 = core.instagramLink(ctx, {
+    handle: '@fatima.rajina', url: 'https://www.instagram.com/fatima.rajina/', cx, y: 330, W, H, noPrompt: true,
+  });
+  const siteHot = core.websiteLink(ctx, {
+    label: 'The Guardian', url: 'https://www.theguardian.com/fashion/2024/dec/03/go-bright-or-go-gucci-british-muslim-men-discuss-what-they-wear-to-friday-prayers', cx, y: 352, W, H, noPrompt: true,
+  });
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,200,100,0.4)';
+  ctx.font = '400 9px Georgia, serif';
+  ctx.fillText('Click a link to open', cx, 366);
 
   const tex = new THREE.CanvasTexture(cv);
   tex.userData = tex.userData || {}; // fresh textures can have undefined userData in this Three build
-  tex.userData.hotspots = [hotspot];
+  tex.userData.hotspots = [ig1, ig2, siteHot];
   return tex;
 }
 

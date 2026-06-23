@@ -22,6 +22,10 @@ function makeMasjidUnclesCardTex() {
       { handle: '@peim786',     url: 'https://instagram.com/peim786' },
       { handle: '@studioteski', url: 'https://instagram.com/studioteski' },
     ],
+    links: [
+      { label: 'STAT Magazine', url: 'https://statmagazine.org/the-masjid-uncles-of-the-front-row/' },
+      { label: 'Buy a print',   url: 'https://peim786.bigcartel.com/product/the-masjid-uncles-of-the-front-row' },
+    ],
   });
 
   const W = 512, H = 384;
@@ -99,55 +103,69 @@ function makeMasjidUnclesCardTex() {
 
   ctx.strokeStyle = 'rgba(255,200,100,0.14)';
   ctx.beginPath();
-  ctx.moveTo(cx - 110, 294); ctx.lineTo(cx + 110, 294);
+  ctx.moveTo(cx - 110, 290); ctx.lineTo(cx + 110, 290);
   ctx.stroke();
 
-  // Handles — two live links to the Instagram profiles (each clickable while the card is
-  // focused). Each is an IG glyph + @handle segment, drawn left-aligned around a centred block
-  // so each gets its own hotspot + underline; a single prompt sits beneath both. textAlign is
-  // restored to centre afterwards.
-  const H1 = '@peim786',      U1 = 'https://instagram.com/peim786';
-  const H2 = '@studioteski',  U2 = 'https://instagram.com/studioteski';
+  // Two paired rows of live links (each clickable while the card is focused): the Instagram
+  // profiles, then the STAT Magazine feature + the print shop. Each item is a glyph + link-bright
+  // label drawn left-aligned around a centred block, so each gets its own hotspot + underline;
+  // a single prompt sits beneath both rows. textAlign is restored to centre afterwards.
   const SEP = '  ·  ';
   const GS = 13, GAP = 6;                  // glyph side + glyph→text gap
   ctx.font = '400 12px Georgia, serif';
-  const w1 = ctx.measureText(H1).width;
   const wS = ctx.measureText(SEP).width;
-  const w2 = ctx.measureText(H2).width;
-  const seg1 = GS + GAP + w1, seg2 = GS + GAP + w2;
-  const yH = 318;
-  ctx.textAlign = 'left';
-  let x = cx - (seg1 + wS + seg2) / 2;     // left edge of the centred block
 
-  const drawLink = (text, leftX, w, url) => {  // glyph + link-bright text + underline; returns hotspot
-    core.drawInstagramGlyph(ctx, leftX + GS / 2, yH - 4, GS, 'rgba(255,214,130,0.82)');
+  const drawItem = (item, leftX, y) => {   // glyph + link-bright label + underline; returns hotspot
+    const w = ctx.measureText(item.label).width;
+    if (item.kind === 'web') core.drawGlobeGlyph(ctx, leftX + GS / 2, y - 4, GS, 'rgba(255,214,130,0.82)');
+    else core.drawInstagramGlyph(ctx, leftX + GS / 2, y - 4, GS, 'rgba(255,214,130,0.82)');
     const tx = leftX + GS + GAP;
     ctx.fillStyle = 'rgba(255,214,130,0.72)';
-    ctx.fillText(text, tx, yH);
+    ctx.fillText(item.label, tx, y);
     ctx.strokeStyle = 'rgba(255,200,100,0.4)';
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(tx, yH + 4); ctx.lineTo(tx + w, yH + 4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx, y + 4); ctx.lineTo(tx + w, y + 4); ctx.stroke();
     const PADX = 9, PADT = 15, PADB = 7;
     return {
       u0: (leftX - PADX) / W, u1: (tx + w + PADX) / W,
-      v0: 1 - (yH + PADB) / H, v1: 1 - (yH - PADT) / H, url,
+      v0: 1 - (y + PADB) / H, v1: 1 - (y - PADT) / H, url: item.url,
     };
   };
 
-  const hs1 = drawLink(H1, x, w1, U1); x += seg1;
-  ctx.fillStyle = 'rgba(255,200,100,0.38)';
-  ctx.fillText(SEP, x, yH); x += wS;
-  const hs2 = drawLink(H2, x, w2, U2);
+  const drawPairRow = (a, b, y) => {       // two items + separator, centred as one block at baseline y
+    ctx.font = '400 12px Georgia, serif';
+    ctx.textAlign = 'left';
+    const wa = ctx.measureText(a.label).width, wb = ctx.measureText(b.label).width;
+    const sa = GS + GAP + wa, sb = GS + GAP + wb;
+    let x = cx - (sa + wS + sb) / 2;
+    const ha = drawItem(a, x, y); x += sa;
+    ctx.fillStyle = 'rgba(255,200,100,0.38)';
+    ctx.fillText(SEP, x, y); x += wS;
+    const hb = drawItem(b, x, y);
+    ctx.textAlign = 'center';
+    return [ha, hb];
+  };
+
+  const igRow = drawPairRow(
+    { kind: 'ig', label: '@peim786',     url: 'https://instagram.com/peim786' },
+    { kind: 'ig', label: '@studioteski', url: 'https://instagram.com/studioteski' },
+    312,
+  );
+  const siteRow = drawPairRow(
+    { kind: 'web', label: 'STAT Magazine', url: 'https://statmagazine.org/the-masjid-uncles-of-the-front-row/' },
+    { kind: 'web', label: 'Buy a print',   url: 'https://peim786.bigcartel.com/product/the-masjid-uncles-of-the-front-row' },
+    336,
+  );
 
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(255,200,100,0.4)';
   ctx.font = '400 9px Georgia, serif';
   ctx.fillText(window.matchMedia('(pointer: coarse)').matches
-    ? 'Tap a handle to open the profile' : 'Click a handle to open the profile', cx, yH + 16);
+    ? 'Tap a link to open' : 'Click a link to open', cx, 356);
 
   const tex = new THREE.CanvasTexture(cv);
   tex.userData = tex.userData || {}; // fresh textures can have undefined userData in this Three build
-  tex.userData.hotspots = [hs1, hs2];
+  tex.userData.hotspots = [...igRow, ...siteRow];
   return tex;
 }
 

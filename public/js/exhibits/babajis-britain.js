@@ -12,13 +12,14 @@ function makeBabajisBritainCardTex() {
   // Mobile: a tall portrait card that fills the phone screen at focus (the landscape card below
   // reads tiny there). Same content, laid out vertically by the shared core renderer.
   if (window.matchMedia('(pointer: coarse)').matches) return core.buildInfoCardPortrait({
-    kicker: 'P H O T O   E S S A Y',
+    kicker: 'P H O T O   S E R I E S',
     title: ["Babaji's Britain"],
     titleSize: 42,
     byline: 'Shizza Majeed',
     body: ['Six decades of a Pakistani migrant', 'grandfather woven into British life:', 'sport, tea, flags & belonging.'],
     credits: 'ROSL Arts Award 2025  ·  Portrait of Britain Vol. 8',
     handles: [{ handle: '@shizzamajeed', url: 'https://instagram.com/shizzamajeed' }],
+    links: [{ label: 'shizzamajeed.com', url: 'https://www.shizzamajeed.com/babajis-britain' }],
   });
 
   const W = 512, H = 384;
@@ -95,16 +96,25 @@ function makeBabajisBritainCardTex() {
 
   ctx.strokeStyle = 'rgba(255,200,100,0.14)';
   ctx.beginPath();
-  ctx.moveTo(cx - 110, 294); ctx.lineTo(cx + 110, 294);
+  ctx.moveTo(cx - 110, 290); ctx.lineTo(cx + 110, 290);
   ctx.stroke();
 
-  // Handle — Instagram glyph + a live link to the profile, with a prompt; clickable while focused
-  const HANDLE = '@shizzamajeed', HANDLE_URL = 'https://instagram.com/shizzamajeed';
-  const hotspot = core.instagramLink(ctx, { handle: HANDLE, url: HANDLE_URL, cx, y: 320, W, H });
+  // Links — the Instagram profile + the series website, each a live hotspot clickable while
+  // focused; per-row prompts suppressed in favour of one shared prompt beneath.
+  const igHot = core.instagramLink(ctx, {
+    handle: '@shizzamajeed', url: 'https://instagram.com/shizzamajeed', cx, y: 310, W, H, noPrompt: true,
+  });
+  const siteHot = core.websiteLink(ctx, {
+    label: 'shizzamajeed.com', url: 'https://www.shizzamajeed.com/babajis-britain', cx, y: 334, W, H, noPrompt: true,
+  });
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,200,100,0.4)';
+  ctx.font = '400 9px Georgia, serif';
+  ctx.fillText('Click a link to open', cx, 354);
 
   const tex = new THREE.CanvasTexture(cv);
   tex.userData = tex.userData || {}; // fresh textures can have undefined userData in this Three build
-  tex.userData.hotspots = [hotspot];
+  tex.userData.hotspots = [igHot, siteHot];
   return tex;
 }
 
