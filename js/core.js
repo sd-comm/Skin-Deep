@@ -188,8 +188,9 @@ function _getExhibitFrameTex(panelW, panelH) {
 
 // Photo-carousel exhibitions register themselves from their own data files
 // (js/exhibits/*.js) via the exported registerPhotoExhibit(); each spec is pushed
-// here so loadExhibitTextures() can warm them all. The carousel ENGINE (open /
-// focus / orbit tick) is the shared machinery below + in animate().
+// here so the proximity preloader + background drain (_loadExhibitTexturesFor /
+// _startExhibitPreloadDrain) can warm them. The carousel ENGINE (open / focus / orbit
+// tick) is the shared machinery below + in animate().
 const _photoSpecs = [];
 
 
@@ -233,23 +234,40 @@ function _ensureCardTex(spec) {
   return spec.cardTex;
 }
 
-function loadExhibitTextures() {
-  _photoSpecs.forEach(ex => {
-    if (ex._loaded) return;
-    ex._loaded = true;
-    _scheduleIdle(() => _warmExhibitPanel(_ensureCardTex(ex)));
-    ex.textures = ex.paths.map(path => {
-      const tex = _configExhibitTex(_texLoader.load(path, img => {
-        _setTexAspect(tex, img.width / img.height);
-        _scheduleIdle(() => _warmExhibitPanel(tex));
-      }));
-      if (tex.image && tex.image.width) {
-        _setTexAspect(tex, tex.image.width / tex.image.height);
-        _scheduleIdle(() => _warmExhibitPanel(tex));
-      }
-      return tex;
-    });
+// Load ONE exhibit's photos + warm its card. Idempotent. Proximity (in the floater loop)
+// preloads the exhibit the player is approaching so it's decoded by open; the background
+// drain trickles in the rest. Replaces the old all-at-once burst (~29 loads + 5 card builds).
+function _loadExhibitTexturesFor(ex) {
+  if (!ex || ex._loaded) return;
+  ex._loaded = true;
+  _scheduleIdle(() => _warmExhibitPanel(_ensureCardTex(ex)));
+  ex.textures = ex.paths.map(path => {
+    const tex = _configExhibitTex(_texLoader.load(path, img => {
+      _setTexAspect(tex, img.width / img.height);
+      _scheduleIdle(() => _warmExhibitPanel(tex));
+    }));
+    if (tex.image && tex.image.width) {
+      _setTexAspect(tex, tex.image.width / tex.image.height);
+      _scheduleIdle(() => _warmExhibitPanel(tex));
+    }
+    return tex;
   });
+}
+
+// Background preload: trickle the remaining exhibits in, one per idle tick, so the whole
+// gallery warms without a burst. Proximity/open just jump a spec's queue (the _loaded guard
+// makes the drain skip anything already loaded).
+let _bgDrainStarted = false;
+function _startExhibitPreloadDrain() {
+  if (_bgDrainStarted) return;
+  _bgDrainStarted = true;
+  const step = () => {
+    const next = _photoSpecs.find(s => !s._loaded);
+    if (!next) return;
+    _loadExhibitTexturesFor(next);
+    _scheduleIdle(step);
+  };
+  _scheduleIdle(step);
 }
 
 // ══════════════════════════════════════════
@@ -693,7 +711,11 @@ const EXHIBIT_CLOSE_DUR = 0.35;
 const EXHIBIT_W         = 3.6;   // landscape 4:3
 const EXHIBIT_H         = 2.7;
 const FRAME_BORDER      = 0.12;  // world-unit overhang of frame plane beyond image edges
-const EXHIBIT_STAGGER   = [0.0, 0.08, 0.16, 0.24, 0.32, 0.40];
+// Sleek reveal: panels fade in (opacity 0→1) with a subtle scale SETTLE from this start
+// scale, instead of ballooning up from near-zero. Cheap (opacity+scale writes only) and
+// reads far smoother. Gentle per-panel stagger gives an elegant cascade.
+const EXHIBIT_OPEN_SCALE0 = 0.9;
+const EXHIBIT_STAGGER   = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25];
 const EXHIBIT_ORBIT_R    = 4.5;   // radius of the orbit circle
 const EXHIBIT_ORBIT_R2   = EXHIBIT_ORBIT_R * EXHIBIT_ORBIT_R;
 const EXHIBIT_ORBIT_SPD  = 0.04;  // radians/second (one lap ≈ 157 s)
@@ -705,6 +727,8 @@ const EXHIBIT_TRIGGER_R  = 2.8;
 const EXHIBIT_TRIGGER_R2 = EXHIBIT_TRIGGER_R * EXHIBIT_TRIGGER_R;
 const EXHIBIT_LEAVE_R    = 6;  // auto-close only — must walk further out than interact radius
 const EXHIBIT_LEAVE_R2   = EXHIBIT_LEAVE_R * EXHIBIT_LEAVE_R;
+const EXHIBIT_PRELOAD_R  = 9;  // start loading an exhibit's photos when the player gets this close
+const EXHIBIT_PRELOAD_R2 = EXHIBIT_PRELOAD_R * EXHIBIT_PRELOAD_R;
 const FOG_BASE           = 0.032;
 let exhibitTriggerFloater = null;
 let exhibitFocusIdx    = -1;
@@ -1306,6 +1330,9 @@ function _startExhibitFocus(idx) {
   exhibitFocusPhase = 'focusing';
   exhibitFocusSwitchTo = -1;
   exhibitFocusT = 0;
+  // Boost to full resolution now — focus is the only place the photo is studied 1:1.
+  // (DRS is paused while an exhibit is open, so this DPR stays put until unfocus/close.)
+  if (curDPR !== EXHIBIT_DPR) { curDPR = EXHIBIT_DPR; _applyDPR(); }
   _hideFocusEscapeHint();
   _hideExhibitNav();
   _hideExhibitPanGuide();
@@ -1385,11 +1412,11 @@ function _leaveExhibitRadius() {
 function _openExhibit(ex, px, pz, openYaw) {
   if (exhibitPhase) return;
   _resetExhibitFocus();
-  loadExhibitTextures(); // safety: ensure textures exist if opened before background preload
-  // Boost to full resolution for the duration the cards are on screen
+  _loadExhibitTexturesFor(ex); // safety: ensure this exhibit's textures exist if opened early
+  // Remember the roaming DPR. The full-resolution boost is applied at FOCUS (where 1:1
+  // pixels matter), not here — so the open spin-in doesn't pay a framebuffer realloc, and
+  // the orbiting cards (in motion, at distance) render at the cheaper roaming DPR.
   _savedDPR = curDPR;
-  curDPR = EXHIBIT_DPR;
-  _applyDPR();
   exhibitOpen  = true;
   exhibitPhase = 'opening';
   exhibitT     = 0;
@@ -1406,19 +1433,20 @@ function _openExhibit(ex, px, pz, openYaw) {
     const geo = new THREE.PlaneGeometry(panelW, panelH);
     // toneMapped:false — skip the room's ACES Filmic curve + exposure boost so the
     // photo renders 1:1 with its source pixels (no highlight roll-off / desaturation).
-    const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, toneMapped: false });
+    // Start invisible (opacity 0) + at the settle scale — the 'opening' tick fades them in.
+    const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, toneMapped: false, transparent: true, opacity: 0 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData.exhibitIdx = i;
     mesh.position.set(px + Math.sin(a) * EXHIBIT_ORBIT_R, 2.0, pz + Math.cos(a) * EXHIBIT_ORBIT_R);
     mesh.rotation.y = a + Math.PI;
-    mesh.scale.setScalar(0.05);
+    mesh.scale.setScalar(EXHIBIT_OPEN_SCALE0);
     scene.add(mesh);
 
     // Frame: same size + FRAME_BORDER overhang, sits just behind image plane
     const frameGeo = new THREE.PlaneGeometry(panelW + FRAME_BORDER*2, panelH + FRAME_BORDER*2);
     const frameMat = new THREE.MeshBasicMaterial({
       map: _getExhibitFrameTex(panelW, panelH), transparent: true, side: THREE.DoubleSide,
-      depthWrite: false, alphaTest: 0.01
+      depthWrite: false, alphaTest: 0.01, opacity: 0
     });
     const frameMesh = new THREE.Mesh(frameGeo, frameMat);
     frameMesh.position.z = -0.012; // slightly behind in local space
@@ -1644,6 +1672,9 @@ export function registerPhotoExhibit(spec) {
   spec.textures = [];
   spec._loaded = false;
   _photoSpecs.push(spec);
+  // Link the floater to its spec so the loop can proximity-preload this exhibit's photos as
+  // the player approaches (floaters are built at module-eval, before exhibits register).
+  if (floaters[spec.floater]) floaters[spec.floater]._photoSpec = spec;
   registerExhibit({
     id: spec.id,
     floater: spec.floater,
@@ -1901,6 +1932,9 @@ function animate() {
     f._dist2  = dist2;
 
     if(!f._hidden && dist2<near.dist){ near.dist=dist2; if(dist2<EXHIBIT_TRIGGER_R2)near.ref=f; }
+    // Proximity preload: warm this exhibit's photos + card as the player approaches, so the
+    // carousel is decoded by the time they open it (the _loaded guard makes this a no-op once done).
+    if (f._photoSpec && !f._photoSpec._loaded && dist2 < EXHIBIT_PRELOAD_R2) _loadExhibitTexturesFor(f._photoSpec);
     // Advance tutorial when player reaches the octahedron
     if (tutStage === 3 && f === floaters[0] && dist2 < 7.84) _tutShow(4);
 
@@ -2047,7 +2081,7 @@ function animate() {
       showToast(f.message);
       if (!roomRevealed && f === floaters[0]) {
         roomRevealed = true;
-        loadExhibitTextures(); // background-preload photos so the first exhibit open is instant
+        _startExhibitPreloadDrain(); // trickle the gallery in; proximity prioritises the nearest
       }
       if (tutStage === 4) _tutDismiss();
       iCD=1.0;
@@ -2181,15 +2215,22 @@ function animate() {
         exhibitFocusIdx = -1;
         exhibitFocusPhase = null;
         exhibitFocusT = 0;
-        exhibitPlanes.forEach(p => {
+        // Back to the roaming DPR — the boost was only for the focused 1:1 view.
+        if (curDPR !== _savedDPR) { curDPR = _savedDPR; _applyDPR(); }
+        for (let i = 0; i < exhibitPlanes.length; i++) {
+          const p = exhibitPlanes[i];
           p.mesh.material.transparent = false;
           p.mesh.material.opacity = 1;
           p.mesh.renderOrder = 0;
-        });
+        }
         _showExhibitHint();
       }
     } else {
-      exhibitPlanes.forEach((p, i) => {
+      // Steady orbit (runs every frame while browsing) — indexed loop, no closures. The
+      // panels' transparent/opacity stay false/1 from creation + the unfocus restore, so
+      // they're NOT rewritten each frame (which would otherwise force transparency re-sorts).
+      for (let i = 0; i < exhibitPlanes.length; i++) {
+        const p = exhibitPlanes[i];
         const a = _exhibitPanelAngle(i);
         p.mesh.position.x = exhibitCX + Math.sin(a) * EXHIBIT_ORBIT_R;
         p.mesh.position.y = 2.0;
@@ -2197,34 +2238,48 @@ function animate() {
         // Explicitly zero X/Z so no residual tilt from focus slerp survives.
         p.mesh.rotation.set(0, a + Math.PI, 0);
         p.mesh.scale.setScalar(1);
-        p.mesh.material.transparent = false;
-        p.mesh.material.opacity = 1;
         // Cull the cards that sit behind the camera (it trails the player by 4.6
         // units, just past the 4.5-unit orbit). Apply this during 'opening' too,
         // not only 'open', so the rear card never scales up through the camera as
         // the exhibit spins in — it simply stays hidden until the player turns.
         if (exhibitPhase === 'open' || exhibitPhase === 'opening') p.mesh.visible = Math.cos(a - yaw) > -0.6;
-      });
+      }
     }
 
     if (exhibitPhase === 'opening') {
       exhibitT = Math.min(1, exhibitT + dt / EXHIBIT_OPEN_DUR);
-      exhibitPlanes.forEach((p, i) => {
+      for (let i = 0; i < exhibitPlanes.length; i++) {
+        const p = exhibitPlanes[i];
         const stagger = EXHIBIT_STAGGER[i] || EXHIBIT_STAGGER[EXHIBIT_STAGGER.length - 1];
         const elapsed = exhibitT * EXHIBIT_OPEN_DUR - stagger;
         const rem     = EXHIBIT_OPEN_DUR - stagger;
         const lt      = Math.max(0, Math.min(1, elapsed / rem));
         const s       = lt * lt * (3 - 2 * lt);
-        p.mesh.scale.setScalar(0.05 + s * 0.95);
-      });
+        p.mesh.scale.setScalar(EXHIBIT_OPEN_SCALE0 + s * (1 - EXHIBIT_OPEN_SCALE0));
+        p.mat.opacity = s;       // fade the photo in
+        p.frameMat.opacity = s;  // and its frame
+      }
       if (exhibitT >= 1) {
         exhibitPhase = 'open';
+        // Restore the steady-orbit invariant: photo fully opaque & non-transparent (so the
+        // orbit tick needn't touch it), frame fully shown.
+        for (let i = 0; i < exhibitPlanes.length; i++) {
+          exhibitPlanes[i].mat.transparent = false;
+          exhibitPlanes[i].mat.opacity = 1;
+          exhibitPlanes[i].frameMat.opacity = 1;
+        }
         _showExhibitHint();
       }
     } else if (exhibitPhase === 'closing') {
       exhibitT = Math.max(0, exhibitT - dt / EXHIBIT_CLOSE_DUR);
-      const s = exhibitT * exhibitT * (3 - 2 * exhibitT);
-      exhibitPlanes.forEach(p => { p.mesh.scale.setScalar(0.05 + s * 0.95); });
+      const s = exhibitT * exhibitT * (3 - 2 * exhibitT); // 1 → 0
+      for (let i = 0; i < exhibitPlanes.length; i++) {
+        const p = exhibitPlanes[i];
+        p.mesh.scale.setScalar(EXHIBIT_OPEN_SCALE0 + s * (1 - EXHIBIT_OPEN_SCALE0));
+        p.mat.transparent = true; // fade the photo out to match the open
+        p.mat.opacity = s;
+        p.frameMat.opacity = s;
+      }
       if (exhibitT <= 0) _closeExhibit();
     }
   }
