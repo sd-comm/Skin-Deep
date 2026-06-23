@@ -1711,20 +1711,27 @@ function _revealScene() {
 }
 
 export function start() {
-  // Compile every in-scene material now — while the veil still covers the canvas — so
-  // the first rendered frame doesn't hitch on shader compilation at room reveal. Safe
-  // because floater materials carry a stable placeholder emissiveMap (swapped, not added).
-  try { renderer.compile(scene, camera); } catch (e) {}
-  animate();
-  // Reveal once the deferred floater textures are built AND a couple of frames have
-  // painted — so the veil's fade runs on a calm main thread (no idle-callback jank) and
-  // the scene behind it is complete. Hard fallback so the veil can never stick.
-  let _vf = 0;
-  const _tick = () => {
-    if (_floaterTexReady && ++_vf >= 2) _revealScene();
-    else requestAnimationFrame(_tick);
-  };
-  requestAnimationFrame(_tick);
+  // Give the browser two frames to paint the loading veil and hand its CSS animation to
+  // the compositor thread BEFORE the heavy synchronous work below — otherwise the very
+  // first thing after start() is a long GPU/main-thread stall (shader compile + first
+  // render) that hitches the loading spinner before it ever gets going.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    // Compile every in-scene material now — while the veil still covers the canvas — so the
+    // first rendered frame doesn't hitch on shader compilation at room reveal. Safe because
+    // floater materials carry a stable placeholder emissiveMap (swapped, not added).
+    try { renderer.compile(scene, camera); } catch (e) {}
+    animate();
+    // Reveal once the deferred floater textures are built AND a couple of frames have
+    // painted — so the veil's fade runs on a calm main thread (no idle-callback jank) and
+    // the scene behind it is complete.
+    let _vf = 0;
+    const _tick = () => {
+      if (_floaterTexReady && ++_vf >= 2) _revealScene();
+      else requestAnimationFrame(_tick);
+    };
+    requestAnimationFrame(_tick);
+  }));
+  // Hard fallback so the veil can never stick, even if the deferred work stalls.
   setTimeout(_revealScene, 2500);
 }
 

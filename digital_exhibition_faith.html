@@ -574,21 +574,35 @@
     will-change: opacity;
   }
   #load-veil.hidden { opacity: 0; pointer-events: none; }
+  /* Warm orb glow (identity) — gentle OPACITY breathe; opacity hitches far less visibly
+     than a scale pulse when the GPU is busy initialising WebGL behind the veil. */
   #load-veil .veil-orb {
+    position: relative;
     width: 120px; height: 120px; border-radius: 50%;
     background: radial-gradient(circle at 50% 50%,
-      rgba(255,210,130,0.55) 0%,
-      rgba(255,170,60,0.22) 38%,
+      rgba(255,210,130,0.5) 0%,
+      rgba(255,170,60,0.2) 40%,
       rgba(255,150,40,0) 70%);
-    animation: veil-pulse 1.8s ease-in-out infinite;
-    will-change: transform, opacity;
+    animation: veil-breathe 2.4s ease-in-out infinite;
+    will-change: opacity;
   }
-  @keyframes veil-pulse {
-    0%, 100% { transform: scale(0.82); opacity: 0.55; }
-    50%      { transform: scale(1.08); opacity: 1; }
+  /* Thin spinning arc — LINEAR rotation reads as a smooth "loading" cue even if frames
+     drop (a stutter just looks like a brief pause, not a jerk). */
+  #load-veil .veil-orb::after {
+    content: '';
+    position: absolute; left: 50%; top: 50%;
+    width: 52px; height: 52px; margin: -26px 0 0 -26px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,180,70,0.14);
+    border-top-color: rgba(255,228,150,0.92);
+    animation: veil-spin 0.95s linear infinite;
+    will-change: transform;
   }
+  @keyframes veil-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+  @keyframes veil-spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) {
-    #load-veil .veil-orb { animation: none; opacity: 0.8; }
+    #load-veil .veil-orb { animation: none; opacity: 0.85; }
+    #load-veil .veil-orb::after { animation: none; }
   }
 
 </style>
