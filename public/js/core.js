@@ -253,6 +253,166 @@ function _instagramLink(ctx, { handle, url, cx, y, W, H, hint }) {
   };
 }
 
+// Build an info card in a tall PORTRAIT layout for mobile. All five photo exhibits share one
+// landscape card template (kicker → title → optional tagline → byline → body → credits → IG
+// handles) baked at 512×384; fit to a phone screen at focus, that landscape card fills only the
+// width and reads tiny (it's short on a 9:16+ viewport). On mobile each exhibit instead calls this
+// with a small content spec, producing a 9:16 card that fills the portrait viewport with large
+// type. Same warm border/vignette/corner treatment as the landscape card, scaled up. The engine's
+// outer frame + focus fill come for free via the texture's portrait aspect (set on userData).
+// spec: { kicker?, title:[lines], titleSize?, tagline?, byline?, body?:[lines], credits?,
+//         handles?:[{handle,url}] }. Returns a CanvasTexture with userData.{aspect,hotspots}.
+function _buildInfoCardPortrait(spec) {
+  const W = 600, H = 1066;          // 9:16 — fills a phone screen at focus
+  const SS = 2;                     // 1200×2132 backing — crisp at full-screen focus
+  const cv = document.createElement('canvas');
+  cv.width = W * SS; cv.height = H * SS;
+  const ctx = cv.getContext('2d');
+  ctx.scale(SS, SS);
+
+  // ── backing + vignette ──
+  ctx.fillStyle = 'rgb(4,2,1)';
+  ctx.fillRect(0, 0, W, H);
+  const vg = ctx.createRadialGradient(W/2, H/2, 60, W/2, H/2, H * 0.62);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── borders + corner accents ──
+  const BM = 22;
+  ctx.strokeStyle = 'rgba(255,200,100,0.32)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(BM, BM, W - BM*2, H - BM*2);
+  ctx.strokeStyle = 'rgba(255,200,100,0.1)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(BM+6, BM+6, W-BM*2-12, H-BM*2-12);
+
+  const CL = 44, F = BM;
+  ctx.shadowColor = 'rgba(255,220,120,1)';
+  ctx.shadowBlur = 14;
+  ctx.strokeStyle = 'rgba(255,240,160,0.9)';
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(F+CL,F);     ctx.lineTo(F,F);     ctx.lineTo(F,F+CL);     ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W-F-CL,F);   ctx.lineTo(W-F,F);   ctx.lineTo(W-F,F+CL);   ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W-F,H-F-CL); ctx.lineTo(W-F,H-F); ctx.lineTo(W-F-CL,H-F); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(F+CL,H-F);   ctx.lineTo(F,H-F);   ctx.lineTo(F,H-F-CL);   ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  const cx = W / 2;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+
+  // ── flowing vertical layout: collect blocks (gapBefore = px from the previous baseline to this
+  // one + a render fn taking the final baseline y), measure the total, then centre the block ──
+  const TITLE = spec.titleSize || 42;
+  const hotspots = [];
+  const items = [];
+  const push = (gap, render) => items.push({ gap, render });
+
+  if (spec.kicker) push(0, (y) => {
+    ctx.fillStyle = 'rgba(255,200,100,0.42)';
+    ctx.font = '400 19px Georgia, serif';
+    ctx.fillText(spec.kicker, cx, y);
+  });
+
+  spec.title.forEach((t, i) => push(i === 0 ? (spec.kicker ? 56 : 0) : Math.round(TITLE * 1.2), (y) => {
+    ctx.fillStyle = 'rgba(255,238,175,0.98)';
+    ctx.font = `400 ${TITLE}px Georgia, serif`;
+    ctx.shadowColor = 'rgba(255,200,80,0.18)';
+    ctx.shadowBlur = 18;
+    ctx.fillText(t, cx, y);
+    ctx.shadowBlur = 0;
+  }));
+
+  if (spec.tagline) push(40, (y) => {
+    ctx.fillStyle = 'rgba(255,220,150,0.62)';
+    ctx.font = 'italic 400 20px Georgia, serif';
+    ctx.fillText(spec.tagline, cx, y);
+  });
+
+  push(46, (y) => {                                   // title divider
+    ctx.strokeStyle = 'rgba(255,200,100,0.22)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx - 170, y); ctx.lineTo(cx + 170, y); ctx.stroke();
+  });
+
+  if (spec.byline) push(46, (y) => {
+    ctx.fillStyle = 'rgba(255,220,150,0.82)';
+    ctx.font = '400 23px Georgia, serif';
+    ctx.fillText(spec.byline, cx, y);
+  });
+
+  (spec.body || []).forEach((t, i) => push(i === 0 ? 56 : 38, (y) => {
+    ctx.fillStyle = 'rgba(255,210,135,0.7)';
+    ctx.font = '400 24px Georgia, serif';
+    ctx.fillText(t, cx, y);
+  }));
+
+  if (spec.credits) push(62, (y) => {
+    ctx.fillStyle = 'rgba(255,200,100,0.52)';
+    ctx.font = '400 18px Georgia, serif';
+    ctx.fillText(spec.credits, cx, y);
+  });
+
+  push(42, (y) => {                                   // lower divider
+    ctx.strokeStyle = 'rgba(255,200,100,0.14)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx - 150, y); ctx.lineTo(cx + 150, y); ctx.stroke();
+  });
+
+  // Instagram handle row(s) — stacked vertically (one per line) so each is a comfortable tap
+  // target on a phone; a single prompt sits beneath the last. Larger glyph/text than the
+  // landscape _instagramLink. Hotspots are recorded at the FINAL (centred) baseline.
+  const GS = 22, GAP = 11;
+  const drawHandle = (h, y) => {
+    ctx.font = '400 22px Georgia, serif';
+    const tw = ctx.measureText(h.handle).width;
+    const blockW = GS + GAP + tw;
+    const left = cx - blockW / 2;
+    _drawInstagramGlyph(ctx, left + GS / 2, y - 7, GS, 'rgba(255,214,130,0.82)');
+    const textLeft = left + GS + GAP;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,214,130,0.74)';
+    ctx.fillText(h.handle, textLeft, y);
+    ctx.strokeStyle = 'rgba(255,200,100,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(textLeft, y + 7); ctx.lineTo(textLeft + tw, y + 7); ctx.stroke();
+    ctx.textAlign = 'center';
+    const PADX = 16, PADT = 28, PADB = 16;            // generous — finger-sized tap target
+    hotspots.push({
+      u0: (left - PADX) / W, u1: (left + blockW + PADX) / W,
+      v0: 1 - (y + PADB) / H, v1: 1 - (y - PADT) / H, url: h.url,
+    });
+  };
+  const handles = spec.handles || [];
+  handles.forEach((h, i) => push(i === 0 ? 58 : 52, (y) => drawHandle(h, y)));
+
+  if (handles.length) push(32, (y) => {
+    ctx.fillStyle = 'rgba(255,200,100,0.4)';
+    ctx.font = '400 15px Georgia, serif';
+    ctx.fillText(handles.length > 1 ? 'Tap a handle to open the profile' : 'Tap to open profile', cx, y);
+  });
+
+  let total = 0;
+  for (const it of items) total += it.gap;            // first baseline → last baseline
+  let y = (H - total) / 2;                             // centre the block vertically
+  for (const it of items) { y += it.gap; it.render(y); }
+
+  const tex = new THREE.CanvasTexture(cv);
+  // No mipmaps + clamp: the card is viewed near head-on at focus, and this keeps the tall NPOT
+  // canvas at native size (WebGL1 would otherwise upscale it to a power of two — softer + heavier).
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.userData = tex.userData || {};                  // fresh textures can have undefined userData here
+  tex.userData.aspect = W / H;                        // portrait — _ensureCardTex defers to this
+  tex.userData.hotspots = hotspots;
+  return tex;
+}
+
 function _fitExhibitSize(aspect) {
   let w = EXHIBIT_W, h = w / aspect;
   if (h > EXHIBIT_H) { h = EXHIBIT_H; w = h * aspect; }
@@ -330,7 +490,11 @@ function _warmExhibitPanel(tex) {
 function _ensureCardTex(spec) {
   if (!spec.cardTex && spec._cardFactory) {
     spec.cardTex = spec._cardFactory();
-    _setTexAspect(spec.cardTex, spec.cardAspect || 512 / 384);
+    // The factory may already set its own aspect (the mobile portrait card does); only fall back
+    // to the spec/landscape default when it hasn't, so the portrait card's frame + focus fill fit.
+    if (!(spec.cardTex.userData && spec.cardTex.userData.aspect)) {
+      _setTexAspect(spec.cardTex, spec.cardAspect || 512 / 384);
+    }
     _initTex(spec.cardTex);
   }
   return spec.cardTex;
@@ -2047,6 +2211,7 @@ const core = {
   cardTextHotspot: _cardTextHotspot,
   instagramLink: _instagramLink,
   drawInstagramGlyph: _drawInstagramGlyph,
+  buildInfoCardPortrait: _buildInfoCardPortrait,
   scheduleIdle: _scheduleIdle,
   showToast,
   // floater + exhibition lifecycle services

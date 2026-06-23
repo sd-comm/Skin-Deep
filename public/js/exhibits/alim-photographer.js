@@ -9,6 +9,17 @@ import { core, registerPhotoExhibit } from '../core.js';
 const { THREE } = core;
 
 function makePhotographerCardTex() {
+  // Mobile: a tall portrait card that fills the phone screen at focus (the landscape card below
+  // reads tiny there). Same content, laid out vertically by the shared core renderer.
+  if (window.matchMedia('(pointer: coarse)').matches) return core.buildInfoCardPortrait({
+    kicker: 'P H O T O G R A P H E R',
+    title: ['Mohammed Alim'],
+    titleSize: 42,
+    body: ['Documents Islamic architecture', '& the lived colour of faith', 'across Southeast Asia.'],
+    credits: '★  reFocus 2025 Gold  ·  Unsplash 2025',
+    handles: [{ handle: '@apyfz', url: 'https://instagram.com/apyfz' }],
+  });
+
   const W = 512, H = 384;
   // Supersample so the text stays crisp when the card is brought to full-screen
   // focus. matchMedia is queried inline because this builds before `isMobile`.

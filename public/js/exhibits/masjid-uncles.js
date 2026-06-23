@@ -9,6 +9,21 @@ import { core, registerPhotoExhibit } from '../core.js';
 const { THREE } = core;
 
 function makeMasjidUnclesCardTex() {
+  // Mobile: a tall portrait card that fills the phone screen at focus (the landscape card below
+  // reads tiny there). Same content, laid out vertically by the shared core renderer.
+  if (window.matchMedia('(pointer: coarse)').matches) return core.buildInfoCardPortrait({
+    kicker: 'P H O T O   E S S A Y',
+    title: ['The Masjid Uncles', 'of the Front Row'],
+    titleSize: 38,
+    byline: 'Afzal Khan & Saif Khan',
+    body: ['Portraits of the elders who', 'claim the front row, the', 'spiritual heart of the masjid.'],
+    credits: 'Practising Empathy in Mirrors  ·  Studio Teski',
+    handles: [
+      { handle: '@peim786',     url: 'https://instagram.com/peim786' },
+      { handle: '@studioteski', url: 'https://instagram.com/studioteski' },
+    ],
+  });
+
   const W = 512, H = 384;
   const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 3; // 1024 / 1536 px — crisp at focus fill
   const cv = document.createElement('canvas');

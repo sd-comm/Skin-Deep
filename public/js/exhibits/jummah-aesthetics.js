@@ -9,6 +9,19 @@ import { core, registerPhotoExhibit } from '../core.js';
 const { THREE } = core;
 
 function makeJummahCardTex() {
+  // Mobile: a tall portrait card that fills the phone screen at focus (the landscape card below
+  // reads tiny there). Same content, laid out vertically by the shared core renderer.
+  if (window.matchMedia('(pointer: coarse)').matches) return core.buildInfoCardPortrait({
+    kicker: 'P H O T O   E S S A Y',
+    title: ['Jummah Aesthetics'],
+    titleSize: 38,
+    tagline: 'British Muslim men & their sartorial choices',
+    byline: 'Rehan Jamil  ·  curated by Dr Fatima Rajina',
+    body: ['What men wear to Friday prayers at', 'four East London mosques: thobes,', 'kameez & streetwear as living faith.'],
+    credits: 'Oxford House, Bethnal Green  ·  The Guardian',
+    handles: [{ handle: '@oxfordhouse1884', url: 'https://instagram.com/oxfordhouse1884' }],
+  });
+
   const W = 512, H = 384;
   const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 3; // 1024 / 1536 px — crisp at focus fill
   const cv = document.createElement('canvas');

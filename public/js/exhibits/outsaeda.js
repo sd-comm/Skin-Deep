@@ -9,6 +9,18 @@ import { core, registerPhotoExhibit } from '../core.js';
 const { THREE } = core;
 
 function makeOutsaedaCardTex() {
+  // Mobile: a tall portrait card that fills the phone screen at focus (the landscape card below
+  // reads tiny there). Same content, laid out vertically by the shared core renderer.
+  if (window.matchMedia('(pointer: coarse)').matches) return core.buildInfoCardPortrait({
+    kicker: 'M O D E S T   S T R E E T W E A R',
+    title: ['OUTSAEDA'],
+    titleSize: 46,
+    byline: 'Saeedah Haque',
+    body: ['The abaya reinvented as techwear:', 'utilitarian, active streetwear for the', 'modern modest wardrobe.'],
+    credits: 'VFILES  ·  London  ·  modest tech wear',
+    handles: [{ handle: '@saeedahhaque', url: 'https://instagram.com/saeedahhaque' }],
+  });
+
   const W = 512, H = 384;
   const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 3; // 1024 / 1536 px — crisp at focus fill
   const cv = document.createElement('canvas');
