@@ -5,6 +5,13 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Digital Exhibition Faith</title>
+<!-- Warm the critical-path fetches during HTML parse: the engine, the JS module graph,
+     and the two textures visible in the first complete frame. -->
+<link rel="preload" as="script" href="three.min.js">
+<link rel="modulepreload" href="js/main.js">
+<link rel="modulepreload" href="js/core.js">
+<link rel="preload" as="image" href="tile.webp" type="image/webp">
+<link rel="preload" as="image" href="orb_tex.webp" type="image/webp">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #000; overflow: hidden; font-family: 'Georgia', serif; }
@@ -13,7 +20,19 @@
     position: fixed; bottom: 28px; left: 0; right: 0;
     display: flex; justify-content: space-between; align-items: flex-end;
     padding: 0 28px; pointer-events: none; z-index: 10;
+    transition: opacity 0.35s ease;
   }
+  #key-space {
+    position: absolute; left: 50%; bottom: 6px;
+    transform: translateX(-50%);
+    opacity: 0; visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease, all 0.15s ease;
+  }
+  #key-space.active,
+  #key-space.tut-highlight {
+    opacity: 1; visibility: visible;
+  }
+  #ui.focus-hidden { opacity: 0 !important; }
   .key {
     width: 36px; height: 36px; border: 1px solid rgba(255,200,100,0.25); border-radius: 6px;
     background: rgba(0,0,0,0.55); color: rgba(255,200,100,0.5); font-size: 11px;
@@ -53,6 +72,9 @@
   #joystick-zone.visible {
     opacity: 1; pointer-events: auto;
   }
+  #joystick-zone.focus-hidden {
+    opacity: 0 !important; pointer-events: none !important;
+  }
   #joystick-base {
     position: absolute; width: 130px; height: 130px; border-radius: 50%;
     border: 2px solid rgba(255,200,100,0.25); background: rgba(0,0,0,0.4);
@@ -73,6 +95,7 @@
     #toast { font-size: 12px; padding: 12px 20px; max-width: 240px;
              backdrop-filter: none; -webkit-backdrop-filter: none; }
     #tut-card { backdrop-filter: none; -webkit-backdrop-filter: none; }
+    #exh-pan-card { backdrop-filter: none; -webkit-backdrop-filter: none; }
   }
 
   /* ── PROXIMITY INTERACT PROMPT ── */
@@ -117,6 +140,220 @@
     0%,100% { opacity: 0.6; transform: scale(0.95); }
     50%      { opacity: 1;   transform: scale(1.05); }
   }
+
+  /* ── EXHIBIT AIM RETICLE ── */
+  #aim-reticle {
+    position: fixed;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,200,100,0.4);
+    transform: translate(-50%, -50%);
+    pointer-events: none; z-index: 24;
+    opacity: 0; transition: opacity 0.25s ease;
+    box-shadow: 0 0 4px rgba(255,180,60,0.15);
+  }
+  #aim-reticle::after {
+    content: '';
+    position: absolute; left: 50%; top: 50%;
+    width: 2px; height: 2px; border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255,220,140,0.5);
+  }
+  #aim-reticle.visible { opacity: 1; }
+  #aim-reticle.locked {
+    border-color: rgba(255,220,140,0.88);
+    box-shadow: 0 0 7px rgba(255,180,60,0.55);
+    animation: aim-lock 0.9s ease-in-out infinite;
+  }
+  #aim-reticle.locked::after {
+    background: rgba(255,220,140,0.95);
+    box-shadow: 0 0 3px rgba(255,180,60,0.75);
+  }
+  @keyframes aim-lock {
+    0%,100% { transform: translate(-50%, -50%) scale(1); }
+    50%      { transform: translate(-50%, -50%) scale(1.1); }
+  }
+
+  /* ── FOCUS ESCAPE HINT ── */
+  #focus-escape-hint {
+    position: fixed; bottom: 28px; left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none; z-index: 25;
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 16px 7px 12px; border-radius: 24px;
+    background: rgba(4,2,0,0.72);
+    border: 1px solid rgba(255,200,100,0.2);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,200,100,0.07);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    opacity: 0; transition: opacity 0.5s ease;
+    white-space: nowrap;
+  }
+  #focus-escape-hint.visible { opacity: 1; }
+  #focus-escape-hint.dim { opacity: 0.22; transition: opacity 1.8s ease; }
+
+  /* SoundCloud embed that takes over the focused record's centre */
+  #crate-sc-embed {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.92);
+    width: min(86vw, 360px); z-index: 27;
+    border-radius: 12px; overflow: hidden;
+    box-shadow: 0 12px 44px rgba(0,0,0,0.75), 0 0 24px rgba(255,120,0,0.2);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.45s ease, transform 0.45s ease;
+  }
+  #crate-sc-embed.visible {
+    opacity: 1; pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  #crate-sc-embed iframe { display: block; width: 100%; height: 300px; border: 0; }
+  #crate-sc-credit {
+    font-size: 10px; color: #cccccc; line-break: anywhere; word-break: normal;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    font-family: Interstate, 'Lucida Grande', 'Lucida Sans Unicode', 'Lucida Sans', Garuda, Verdana, Tahoma, sans-serif;
+    font-weight: 100; padding: 4px 9px; background: rgba(4,2,0,0.72);
+  }
+  #crate-sc-credit a { color: #cccccc; text-decoration: none; }
+
+  /* YouTube embed that takes over the focused MPC pad grid */
+  #mpc-yt-embed {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.92);
+    width: min(90vw, 720px); z-index: 30;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.45s ease, transform 0.45s ease;
+  }
+  #mpc-yt-embed.visible {
+    opacity: 1; pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  #mpc-yt-embed:focus { outline: none; }  /* focus is pulled here to keep Escape working — no ring */
+  #mpc-yt-frame {
+    position: relative; width: 100%; padding-top: 56.25%;  /* 16:9 */
+    border-radius: 12px; overflow: hidden;
+    box-shadow: 0 12px 44px rgba(0,0,0,0.75), 0 0 24px rgba(255,185,90,0.22);
+  }
+  #mpc-yt-frame iframe {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; display: block;
+  }
+  /* Loading facade: the pad thumbnail + spinner paint instantly over the iframe while the
+     player downloads, then crossfade out once it's ready (#mpc-yt-frame gets .loaded). */
+  #mpc-yt-poster {
+    position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: #0a0806 center / cover no-repeat;
+    transition: opacity 0.28s ease;
+  }
+  #mpc-yt-spin {
+    position: absolute; top: 50%; left: 50%; z-index: 2; pointer-events: none;
+    width: 42px; height: 42px; margin: -21px 0 0 -21px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.16);
+    border-top-color: rgba(255,185,90,0.95);   /* amber accent — matches the pad halo */
+    box-shadow: 0 0 14px rgba(255,185,90,0.35);
+    animation: mpc-spin 0.8s linear infinite;
+    transition: opacity 0.28s ease;
+  }
+  @keyframes mpc-spin { to { transform: rotate(360deg); } }
+  #mpc-yt-frame.loaded #mpc-yt-poster,
+  #mpc-yt-frame.loaded #mpc-yt-spin { opacity: 0; }
+  #mpc-yt-close {
+    position: absolute; top: -14px; right: -14px; z-index: 1;
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.25); background: rgba(8,6,4,0.92); color: #f0e9da;
+    font: 400 22px/1 Georgia, serif; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  }
+  #mpc-yt-close:hover { background: rgba(28,22,16,0.95); }
+
+  /* YouTube embed that fills the focused CRT screen window. JS sets left/top/width/height
+     per-frame to track the screen mesh's projected rectangle, so the clip plays "inside" the
+     TV glass. z-index sits below the focus-escape-hint (25) so the "esc back" hint stays visible. */
+  #crt-yt-embed {
+    position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: 24;
+    overflow: hidden; background: #000; border-radius: 10px;  /* echo the CRT glass corners */
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+  #crt-yt-embed.visible { opacity: 1; pointer-events: auto; }
+  /* Channel-change blink: fade out fast (showing the live WebGL snow behind), then .visible
+     fades it back in. Declared after .visible so it wins on equal specificity. */
+  #crt-yt-embed.switching { opacity: 0; transition: opacity 0.06s linear; }
+  #crt-yt-embed iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  /* Crate prev/next reuse the exhibit carousel nav style (side, vertically centred).
+     Desktop cycles records with the up/down arrow keys, so the side buttons are mobile-only. */
+  #crate-prev-btn { left: 16px; }
+  #crate-next-btn { right: 16px; }
+  #crate-prev-btn, #crate-next-btn { display: none; }
+  @media (pointer: coarse) {
+    #crate-prev-btn, #crate-next-btn { display: flex; }
+  }
+
+  /* ── EXHIBIT CAROUSEL NAV (mobile) ── */
+  .exhibit-nav-btn {
+    position: fixed; top: 50%; z-index: 26;
+    width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,220,140,0.9);
+    background: rgba(4,2,0,0.72);
+    border: 1px solid rgba(255,200,100,0.3);
+    box-shadow: 0 4px 18px rgba(0,0,0,0.8), 0 0 14px rgba(255,180,60,0.18), inset 0 1px 0 rgba(255,200,100,0.08);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    cursor: pointer; opacity: 0; pointer-events: none;
+    transform: translateY(-50%);
+    transition: opacity 0.3s ease, transform 0.12s ease;
+  }
+  .exhibit-nav-btn.visible { opacity: 1; pointer-events: auto; }
+  .exhibit-nav-btn:active { transform: translateY(-50%) scale(0.92); }
+  #exhibit-prev { left: 16px; }
+  #exhibit-next { right: 16px; }
+  @media (pointer: coarse) {
+    .exhibit-nav-btn { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  }
+  .feh-key {
+    font-family: Georgia, serif; font-size: 9px; letter-spacing: 0.08em;
+    color: rgba(255,220,140,0.9); padding: 2px 7px;
+    border: 1px solid rgba(255,200,100,0.45); border-radius: 4px;
+    background: rgba(0,0,0,0.5);
+    box-shadow: 0 0 8px rgba(255,180,60,0.3);
+    text-transform: uppercase;
+  }
+  .feh-label {
+    font-family: Georgia, serif; font-size: 10px; letter-spacing: 0.12em;
+    color: rgba(255,210,135,0.7); text-transform: uppercase;
+  }
+  @media (pointer: coarse) {
+    #focus-escape-hint { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  }
+
+  /* Crate record cycling hint (desktop keyboard only) */
+  #crate-browse-hint {
+    position: fixed; bottom: 28px; left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none; z-index: 25;
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 16px; border-radius: 24px;
+    background: rgba(4,2,0,0.72);
+    border: 1px solid rgba(255,200,100,0.2);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,200,100,0.07);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    opacity: 0; transition: opacity 0.45s ease;
+    white-space: nowrap;
+  }
+  #crate-browse-hint.visible { opacity: 1; }
+  #crate-browse-hint.dim { opacity: 0.22; transition: opacity 1.8s ease; }
+  #crate-browse-hint .cbh-keys { display: inline-flex; gap: 4px; }
+  #crate-browse-hint .feh-key { font-size: 11px; line-height: 1; padding: 3px 6px; }
+  @media (pointer: coarse) {
+    #crate-browse-hint { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  }
+  @keyframes crate-nav-hint-pulse {
+    0%, 100% { box-shadow: 0 4px 18px rgba(0,0,0,0.8), 0 0 14px rgba(255,180,60,0.18), inset 0 1px 0 rgba(255,200,100,0.08); border-color: rgba(255,200,100,0.3); }
+    50% { box-shadow: 0 4px 18px rgba(0,0,0,0.8), 0 0 28px rgba(255,180,60,0.55), inset 0 1px 0 rgba(255,200,100,0.12); border-color: rgba(255,200,100,0.65); }
+  }
+  #crate-prev-btn.hint-pulse, #crate-next-btn.hint-pulse {
+    animation: crate-nav-hint-pulse 1.2s ease-in-out infinite;
+  }
+
   #tut-overlay {
     position: fixed; inset: 0; z-index: 30; pointer-events: none;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -170,6 +407,29 @@
     will-change: transform;
   }
   #tut-guide-dot.visible { display: block; }
+  #exh-pan-wrap.visible { display: block; }
+  #exh-pan-wrap {
+    position: fixed;
+    pointer-events: none; z-index: 31; display: none;
+    width: 20px; height: 20px;
+    transform: translate(-50%, -50%);
+    will-change: transform, left, top;
+  }
+  #exh-pan-card {
+    position: absolute; bottom: calc(100% + 10px); left: 50%;
+    transform: translateX(-50%);
+    background: rgba(5,3,1,0.78); border: 1px solid rgba(255,200,100,0.3);
+    border-radius: 10px; padding: 9px 14px; text-align: center;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.85), 0 0 40px rgba(255,180,60,0.05), inset 0 1px 0 rgba(255,200,100,0.1);
+    color: rgba(255,225,160,0.92);
+    font-family: Georgia, serif; font-size: 11px; letter-spacing: 0.06em; line-height: 1.5;
+    white-space: nowrap;
+  }
+  #exh-pan-guide {
+    position: absolute; top: 0; left: 0;
+    width: 20px; height: 20px;
+  }
   /* Directing ring — converges onto the dot before it sweeps */
   .tut-gdot-ring {
     position: absolute; top: 0; left: 0;
@@ -289,6 +549,7 @@
     opacity: 0; transition: opacity 1.2s ease;
   }
   #minimap-wrap.visible { opacity: 1; }
+  #minimap-wrap.focus-hidden { opacity: 0 !important; transition: opacity 0.35s ease; }
   #minimap {
     display: block;
     border-radius: 50%;
@@ -300,9 +561,64 @@
     font-family: Georgia, serif; font-size: 9px; letter-spacing: 0.18em;
     text-transform: uppercase; color: rgba(255,200,100,0.35);
   }
+
+  /* ── SPLASH / LOADING ── painted on first parse (no JS); core.js adds .hidden after ~1s.
+     Deliberately minimal and compositor-friendly: a STATIC orb glow (no animation that could
+     stutter while the GPU warms up) and a loading bar that fills via transform: scaleX (runs on
+     the compositor thread independent of the main-thread compile work behind it). */
+  #splash {
+    position: fixed; inset: 0; z-index: 9999;
+    background: #000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 26px;
+    opacity: 1; transition: opacity 0.45s ease;
+    will-change: opacity;
+  }
+  #splash.hidden { opacity: 0; pointer-events: none; }
+  #splash .splash-orb {
+    width: 96px; height: 96px; border-radius: 50%;
+    /* slight negative margin so the title sits inside the orb's glow */
+    margin-bottom: -18px;
+    background: radial-gradient(circle at 50% 50%,
+      rgba(255,210,130,0.5) 0%, rgba(255,170,60,0.2) 44%, rgba(255,150,40,0) 72%);
+  }
+  #splash .splash-title {
+    font-family: Georgia, serif; font-weight: 400;
+    font-size: 32px; letter-spacing: 0.42em;
+    /* trailing letter-spacing shifts text left; pad the same amount to optically re-centre */
+    padding-left: 0.42em;
+    text-transform: uppercase;
+    color: rgba(255,228,165,0.96);
+    text-shadow: 0 0 26px rgba(255,180,60,0.5), 0 2px 14px rgba(0,0,0,0.6);
+  }
+  #splash .splash-bar {
+    width: 184px; height: 2px; border-radius: 2px;
+    background: rgba(255,200,100,0.14); overflow: hidden;
+  }
+  #splash .splash-bar-fill {
+    height: 100%; width: 100%; border-radius: 2px;
+    background: linear-gradient(90deg, rgba(255,170,60,0.7), rgba(255,228,150,0.95));
+    box-shadow: 0 0 10px rgba(255,180,60,0.45);
+    transform: scaleX(0); transform-origin: left center;
+    animation: splash-fill 1.05s ease-in-out forwards;
+    will-change: transform;
+  }
+  @keyframes splash-fill { 0% { transform: scaleX(0); } 100% { transform: scaleX(1); } }
+  @media (prefers-reduced-motion: reduce) {
+    #splash .splash-bar-fill { animation: none; transform: scaleX(1); }
+  }
+
 </style>
 </head>
 <body>
+<!-- Splash: veils the cold-start (shader compile + first frames + camera settle) for ~1s, then
+     core.js fades it out. Purely CSS-driven: a static orb glow + a loading bar that fills via a
+     compositor-only transform, so it stays smooth even while the GPU is warming up behind it. -->
+<div id="splash">
+  <div class="splash-orb"></div>
+  <div class="splash-title">YAQEEN</div>
+  <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+</div>
 <div id="ui">
   <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
     <div style="display:flex;justify-content:center"><div class="key" id="key-w">W</div></div>
@@ -312,7 +628,7 @@
       <div class="key" id="key-d">D</div>
     </div>
   </div>
-  <div class="key" id="key-space" style="margin-bottom:6px;width:auto;padding:0 10px;font-size:10px">
+  <div class="key" id="key-space" style="width:auto;padding:0 10px;font-size:10px">
     space
   </div>
   <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
@@ -328,7 +644,42 @@
   <div class="ipr-icon" id="ipr-icon"></div>
   <div class="ipr-pip"></div>
 </div>
+<div id="aim-reticle"></div>
+<div id="focus-escape-hint"></div>
+<div id="crate-browse-hint"><span class="cbh-keys"><span class="feh-key">&uarr;</span><span class="feh-key">&darr;</span></span><span class="feh-label">browse records</span><span class="feh-label" style="opacity:0.35;margin:0 6px">&middot;</span><span class="feh-key">esc</span><span class="feh-label">close</span></div>
+<div id="crate-sc-embed">
+  <iframe id="crate-sc-iframe" width="100%" height="300" scrolling="no" frameborder="no" allow="autoplay; encrypted-media"></iframe>
+  <div id="crate-sc-credit"><a href="https://soundcloud.com/user-612196404" title="NTS 2023" target="_blank">NTS 2023</a> &middot; <a href="https://soundcloud.com/user-612196404/in-faith-w-provhat-goldtooth" title="In Faith w/ Provhat &amp; GoldTooth 150823" target="_blank">In Faith w/ Provhat &amp; GoldTooth 150823</a></div>
+</div>
+<div id="mpc-yt-embed">
+  <button id="mpc-yt-close" aria-label="close">&times;</button>
+  <div id="mpc-yt-frame">
+    <iframe id="mpc-yt-iframe" scrolling="no" frameborder="no" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
+    <div id="mpc-yt-poster"></div>
+    <div id="mpc-yt-spin"></div>
+  </div>
+</div>
+<!-- YouTube embed that plays inside the focused CRT screen window (JS sizes it to fit). -->
+<div id="crt-yt-embed">
+  <iframe id="crt-yt-iframe" scrolling="no" frameborder="no" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
+</div>
+<button id="crate-prev-btn" class="exhibit-nav-btn" aria-label="previous record">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M15 18l-6-6 6-6"/></svg>
+</button>
+<button id="crate-next-btn" class="exhibit-nav-btn" aria-label="next record">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M9 18l6-6-6-6"/></svg>
+</button>
+<button id="exhibit-prev" class="exhibit-nav-btn" aria-label="previous image">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M15 18l-6-6 6-6"/></svg>
+</button>
+<button id="exhibit-next" class="exhibit-nav-btn" aria-label="next image">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M9 18l6-6-6-6"/></svg>
+</button>
 <div id="tut-guide-dot"><div class="tut-gdot-ring"></div><div class="tut-gdot-ball"></div></div>
+<div id="exh-pan-wrap">
+  <div id="exh-pan-guide"><div class="tut-gdot-ring"></div><div class="tut-gdot-ball"></div></div>
+  <div id="exh-pan-card">Swipe the orb to look around</div>
+</div>
 <div id="tut-overlay">
   <div id="tut-card">
     <div id="tut-step">Step 1 of 5</div>
@@ -348,1004 +699,10 @@
 
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>
-// ══════════════════════════════════════════
-//  PROCEDURAL TEXTURES
-// ══════════════════════════════════════════
-
-
-
-function makeOrbTexture() {
-  const tex = new THREE.TextureLoader().load('orb_tex.png');
-  return tex;
-}
-
-// Generates a distinct procedural emissive pattern for each floater type
-function makeFloaterTex(type) {
-  const S = 128, cv = document.createElement('canvas');
-  cv.width = cv.height = S;
-  const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#000'; ctx.fillRect(0,0,S,S);
-  if (type === 'crystal') {
-    // Voronoi cell-edge glow — crystalline facets
-    const pts = Array.from({length:14}, () => [Math.random()*S, Math.random()*S]);
-    for (let x=0; x<S; x++) for (let y=0; y<S; y++) {
-      let d1=1e9, d2=1e9;
-      for (const p of pts){const d=Math.hypot(x-p[0],y-p[1]);if(d<d1){d2=d1;d1=d;}else if(d<d2)d2=d;}
-      const e=d2-d1; if(e<2.2){const a=Math.pow((2.2-e)/2.2,1.8)*0.88;ctx.fillStyle=`rgba(255,255,255,${a})`;ctx.fillRect(x,y,1,1);}
-    }
-  } else if (type === 'circuit') {
-    // Orthogonal circuit trace lines + nodes
-    ctx.strokeStyle='rgba(255,255,255,0.82)'; ctx.lineWidth=0.9; const g=16;
-    for (let x=0; x<=S; x+=g) for (let y=0; y<=S; y+=g) {
-      if(Math.random()>.38){ctx.beginPath();ctx.moveTo(x,y);const h=Math.random()>.5;ctx.lineTo(x+(h?g:0),y+(h?0:g));ctx.stroke();}
-      if(Math.random()>.62){ctx.beginPath();ctx.arc(x,y,2,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,0.9)';ctx.fill();}
-    }
-  } else if (type === 'marble') {
-    // Turbulence swirl bands
-    const id=ctx.createImageData(S,S);
-    for (let x=0; x<S; x++) for (let y=0; y<S; y++) {
-      const v=Math.min(255,Math.max(0,((Math.sin((x/S+Math.sin(y/S*4.5)*0.35)*Math.PI*6)+1)*0.5*220)|0));
-      const i=(y*S+x)*4; id.data[i]=id.data[i+1]=id.data[i+2]=v; id.data[i+3]=255;
-    }
-    ctx.putImageData(id,0,0);
-  } else if (type === 'cells') {
-    // Organic Voronoi cell ripples
-    const pts=Array.from({length:18},()=>[Math.random()*S,Math.random()*S]);
-    for (let x=0; x<S; x+=2) for (let y=0; y<S; y+=2) {
-      let d1=1e9; for(const p of pts){const d=Math.hypot(x-p[0],y-p[1]);if(d<d1)d1=d;}
-      const v=(Math.sin(d1*0.38)+1)*0.42; ctx.fillStyle=`rgba(255,255,255,${v})`; ctx.fillRect(x,y,2,2);
-    }
-  } else if (type === 'cosmos') {
-    // Nebula soft patches + scattered star dots
-    for (let i=0; i<6; i++) {
-      const nx=Math.random()*S, ny=Math.random()*S, nr=S*(0.2+Math.random()*0.15);
-      const grd=ctx.createRadialGradient(nx,ny,0,nx,ny,nr);
-      grd.addColorStop(0,'rgba(255,255,255,0.18)'); grd.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=grd; ctx.fillRect(0,0,S,S);
-    }
-    for(let i=0;i<90;i++){const r=Math.random();ctx.beginPath();ctx.arc(Math.random()*S,Math.random()*S,r*1.5,0,Math.PI*2);ctx.fillStyle=`rgba(255,255,255,${0.25+r*0.75})`;ctx.fill();}
-  } else if (type === 'static') {
-    // Fine pixel static — ghostly noise
-    const id=ctx.createImageData(S,S);
-    for(let i=0;i<S*S;i++){const v=Math.random()<0.06?255:Math.random()*55|0;id.data[i*4]=id.data[i*4+1]=id.data[i*4+2]=v;id.data[i*4+3]=255;}
-    ctx.putImageData(id,0,0);
-  } else if (type === 'rune') {
-    // Angular rune-like glyphs
-    ctx.strokeStyle='rgba(255,255,255,0.78)'; ctx.lineWidth=1.2;
-    for(let i=0;i<14;i++){
-      const rx=8+Math.random()*(S-16), ry=8+Math.random()*(S-16), len=7+Math.random()*12, a=Math.random()*Math.PI;
-      ctx.beginPath(); ctx.moveTo(rx,ry); ctx.lineTo(rx+Math.cos(a)*len,ry+Math.sin(a)*len);
-      if(Math.random()>.45)ctx.lineTo(rx+Math.cos(a+Math.PI*0.62)*len*0.65,ry+Math.sin(a+Math.PI*0.62)*len*0.65);
-      ctx.stroke();
-    }
-  } else if (type === 'weave') {
-    // Diagonal crosshatch weave with bright intersections
-    ctx.strokeStyle='rgba(255,255,255,0.48)'; ctx.lineWidth=0.9;
-    for(let i=-S;i<S*2;i+=9){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i+S,S);ctx.stroke();ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i-S,S);ctx.stroke();}
-    for(let x=0;x<S;x+=9) for(let y=0;y<S;y+=9)
-      if((((x+y)/9)|0)%2===0){ctx.beginPath();ctx.arc(x,y,1.5,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,0.9)';ctx.fill();}
-  }
-  return new THREE.CanvasTexture(cv);
-}
-
-// ══════════════════════════════════════════
-//  SCENE
-// ══════════════════════════════════════════
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000000);
-scene.fog = new THREE.FogExp2(0x000000, 0.032);
-
-const isMobile = window.matchMedia('(pointer: coarse)').matches;
-const renderer = new THREE.WebGLRenderer({ antialias: !isMobile });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.0 : 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = false;
-renderer.toneMapping = isMobile ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
-if (!isMobile) renderer.toneMappingExposure = 1.15;
-document.body.appendChild(renderer.domElement);
-
-const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.1, 80);
-
-// ── FLOOR ──
-const floorTex = new THREE.TextureLoader().load('tile.png');
-floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-floorTex.repeat.set(6, 6);
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(50, 50),
-  new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85, metalness: 0.05, color: 0x222222 })
-);
-floor.rotation.x = -Math.PI / 2;
-scene.add(floor);
-
-// ── ROOM WALLS + CEILING (no bottom face) ──
-const wallTex = new THREE.TextureLoader().load('tile.png');
-wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
-wallTex.repeat.set(5, 3);
-const roomMat = new THREE.MeshStandardMaterial({
-  map: wallTex, roughness: 0.85, metalness: 0.05,
-  color: 0x666666, side: THREE.FrontSide,
-});
-const W = 46, H = 16;
-// Four walls
-[
-  { pos:[0, H/2, -W/2], rx:0,   ry:0 },
-  { pos:[0, H/2,  W/2], rx:0,   ry:Math.PI },
-  { pos:[-W/2, H/2, 0], rx:0,   ry:Math.PI/2 },
-  { pos:[ W/2, H/2, 0], rx:0,   ry:-Math.PI/2 },
-].forEach(({pos, rx, ry}) => {
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(W, H), roomMat);
-  m.position.set(...pos); m.rotation.set(rx, ry, 0);
-  scene.add(m);
-});
-// Ceiling
-const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(W, W), roomMat);
-ceiling.position.set(0, H, 0);
-ceiling.rotation.x = Math.PI / 2;
-scene.add(ceiling);
-
-// ── LIGHTS ──
-// Ambient starts dark — fades in after the player interacts with the first object
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.0);
-scene.add(ambientLight);
-
-// ══════════════════════════════════════════
-//  PLAYER / ORB
-// ══════════════════════════════════════════
-const player = new THREE.Group();
-player.position.set(0, 0, -4);
-scene.add(player);
-
-// Core
-const _orbTex = makeOrbTexture();
-const orbMesh = new THREE.Mesh(
-  new THREE.SphereGeometry(0.22, 16, 16),
-  new THREE.MeshStandardMaterial({ map:_orbTex, emissiveMap:_orbTex, color:0xfff5d0, emissive:0xffaa33, emissiveIntensity:0.8, roughness:0.15 })
-);
-orbMesh.position.y = 0.55;
-player.add(orbMesh);
-
-// Main orb light — inverse-square decay, no hard distance cutoff
-const orbLight = new THREE.PointLight(0xffa040, 12.0, 8, 1.2);
-orbLight.position.y = 0.55;
-player.add(orbLight);
-
-// Secondary soft fill — capped range so it only warms the immediate vicinity of the player
-const fillLight = new THREE.PointLight(0xff8844, 0.45, 6, 2);
-fillLight.position.y = 0.8;
-player.add(fillLight);
-
-// Distant feather fill — slightly wider but still bounded so distant walls stay dark
-const featherLight = new THREE.PointLight(0xff6622, 0.15, 9, 2);
-featherLight.position.y = 1.2;
-player.add(featherLight);
-
-// ── BLOB SHADOW ──
-const _shadowCanvas = document.createElement('canvas');
-_shadowCanvas.width = _shadowCanvas.height = 128;
-const _shadowCtx = _shadowCanvas.getContext('2d');
-const _shadowGrad = _shadowCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
-_shadowGrad.addColorStop(0,   'rgba(0,0,0,0.72)');
-_shadowGrad.addColorStop(0.45,'rgba(0,0,0,0.38)');
-_shadowGrad.addColorStop(0.75,'rgba(0,0,0,0.10)');
-_shadowGrad.addColorStop(1,   'rgba(0,0,0,0)');
-_shadowCtx.fillStyle = _shadowGrad;
-_shadowCtx.fillRect(0, 0, 128, 128);
-const blobShadow = new THREE.Mesh(
-  new THREE.CircleGeometry(0.82, 48),
-  new THREE.MeshBasicMaterial({
-    map: new THREE.CanvasTexture(_shadowCanvas),
-    transparent: true, depthWrite: false, depthTest: false,
-    blending: THREE.NormalBlending,
-  })
-);
-blobShadow.renderOrder = 1;
-blobShadow.rotation.x = -Math.PI / 2;
-blobShadow.position.y = 0.001;
-scene.add(blobShadow);
-
-// ══════════════════════════════════════════
-//  DUST MOTES
-// ══════════════════════════════════════════
-// Soft circular sprite so particles look like dust, not square pixels
-const _moteCanvas = document.createElement('canvas');
-_moteCanvas.width = _moteCanvas.height = 32;
-const _moteCtx = _moteCanvas.getContext('2d');
-const _moteGrad = _moteCtx.createRadialGradient(16,16,0, 16,16,16);
-_moteGrad.addColorStop(0,   'rgba(255,235,180,1)');
-_moteGrad.addColorStop(0.4, 'rgba(255,210,130,0.6)');
-_moteGrad.addColorStop(1,   'rgba(0,0,0,0)');
-_moteCtx.fillStyle = _moteGrad;
-_moteCtx.fillRect(0,0,32,32);
-const _moteTex = new THREE.CanvasTexture(_moteCanvas);
-
-const MOTE_N = isMobile ? 600 : 3000;
-const motePos = new Float32Array(MOTE_N * 3);
-const motePhase = new Float32Array(MOTE_N);
-for (let i = 0; i < MOTE_N; i++) {
-  motePos[i*3]   = (Math.random()-0.5)*22;
-  motePos[i*3+1] = Math.random()*4;
-  motePos[i*3+2] = (Math.random()-0.5)*22;
-  motePhase[i]   = Math.random()*Math.PI*2;
-}
-const moteGeo = new THREE.BufferGeometry();
-moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
-const moteMesh = new THREE.Points(moteGeo, new THREE.PointsMaterial({
-  map: _moteTex, color:0xffe8b0, size:0.014, transparent:true, opacity:0.55,
-  sizeAttenuation:true, depthWrite:false, alphaTest:0.01
-}));
-scene.add(moteMesh);
-
-// ══════════════════════════════════════════
-//  FLOATERS
-// ══════════════════════════════════════════
-// Shared shadow texture for floater ground discs
-const _fShadowCanvas = document.createElement('canvas');
-_fShadowCanvas.width = _fShadowCanvas.height = 64;
-const _fShadowCtx = _fShadowCanvas.getContext('2d');
-const _fShadowGrad = _fShadowCtx.createRadialGradient(32,32,0, 32,32,32);
-_fShadowGrad.addColorStop(0,   'rgba(0,0,0,0.6)');
-_fShadowGrad.addColorStop(0.5, 'rgba(0,0,0,0.24)');
-_fShadowGrad.addColorStop(1,   'rgba(0,0,0,0)');
-_fShadowCtx.fillStyle = _fShadowGrad;
-_fShadowCtx.fillRect(0,0,64,64);
-const _floaterShadowTex = new THREE.CanvasTexture(_fShadowCanvas);
-
-const floaterData = [
-  { pos:[  0,1.1,  5], geo:new THREE.OctahedronGeometry(0.32),         color:0xffcc44, em:0xff8800, tex:'rune',   msg:"[ROOM OPENED]" },
-  { pos:[-17,1.2,-17], geo:new THREE.OctahedronGeometry(0.25),         color:0x88ddff, em:0x2299cc, tex:'crystal', msg:"[EXHIBIT PIECE TRIGGERED]" },
-  { pos:[  0,1.0,-18], geo:new THREE.TetrahedronGeometry(0.28),         color:0xffcc55, em:0xdd8800, tex:'circuit', msg:"[EXHIBIT PIECE TRIGGERED]" },
-  { pos:[ 17,1.5,-17], geo:new THREE.TorusGeometry(0.22,0.08,16,48),    color:0xff88aa, em:0xcc2255, tex:'marble',  msg:"[EXHIBIT PIECE TRIGGERED]" },
-  { pos:[ 18,1.1,  0], geo:new THREE.IcosahedronGeometry(0.22),         color:0xaaffcc, em:0x22aa55, tex:'cells',   msg:"[EXHIBIT PIECE TRIGGERED]" },
-  { pos:[ 17,0.9, 17], geo:new THREE.DodecahedronGeometry(0.22),        color:0xcc99ff, em:0x7733cc, tex:'cosmos',  msg:"[EXHIBIT PIECE TRIGGERED]" },
-  { pos:[  0,1.3, 18], geo:new THREE.SphereGeometry(0.18,16,16),        color:0xffffff, em:0xaaaaff, tex:'static',  msg:"[EXHIBIT PIECE TRIGGERED]" },
-  { pos:[-17,1.0, 17], geo:new THREE.BoxGeometry(0.25,0.25,0.25),       color:0xffeeaa, em:0xcc9900, tex:'rune',    msg:"[EXHIBIT PIECE TRIGGERED]" },
-  { pos:[-18,1.2,  0], geo:new THREE.TorusKnotGeometry(0.14,0.05,64,8), color:0xff99cc, em:0xcc3388, tex:'weave',   msg:"[EXHIBIT PIECE TRIGGERED]" },
-];
-
-const floaters = [];
-floaterData.forEach(fd => {
-  // Main mesh — clearcoat + procedural emissive texture
-  const fTex = makeFloaterTex(fd.tex);
-  const mesh = new THREE.Mesh(fd.geo, new THREE.MeshPhysicalMaterial({
-    color:fd.color, emissive:fd.em, emissiveIntensity:1.4,
-    emissiveMap: fTex,
-    roughness:0.12, metalness:0.55,
-    clearcoat:0.45, clearcoatRoughness:0.15
-  }));
-  mesh.position.set(...fd.pos);
-  scene.add(mesh);
-
-  // Back-face aura shell — soft glow halo from behind
-  const aura = new THREE.Mesh(fd.geo, new THREE.MeshBasicMaterial({
-    color:fd.color, transparent:true, opacity:0.07,
-    side:THREE.BackSide, blending:THREE.AdditiveBlending, depthWrite:false
-  }));
-  aura.scale.setScalar(1.22);
-  aura.position.copy(mesh.position);
-  scene.add(aura);
-
-  // Orbit ring — spins on a tilted axis like a planetary ring
-  const ringR = (fd.geo.parameters.radius || fd.geo.parameters.width || 0.22) + 0.19;
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(ringR, 0.011, 6, 32),
-    new THREE.MeshBasicMaterial({
-      color:fd.color, transparent:true, opacity:0.36,
-      blending:THREE.AdditiveBlending, depthWrite:false
-    })
-  );
-  ring.position.copy(mesh.position);
-  ring.rotation.x = (Math.random()*0.6 + 0.4) * Math.PI;
-  ring.rotation.z = Math.random() * Math.PI;
-  scene.add(ring);
-
-  // Shadow disc — fades as floater rises
-  const fShadow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.44, 32),
-    new THREE.MeshBasicMaterial({
-      map:_floaterShadowTex, transparent:true,
-      depthWrite:false, depthTest:false, blending:THREE.NormalBlending
-    })
-  );
-  fShadow.rotation.x = -Math.PI/2;
-  fShadow.position.set(fd.pos[0], 0.004, fd.pos[2]);
-  fShadow.renderOrder = 2;
-  scene.add(fShadow);
-
-  const fl = new THREE.PointLight(fd.color, 0.9, 4.5, 2);
-  fl.position.copy(mesh.position);
-  scene.add(fl);
-
-  floaters.push({ mesh, aura, ring, fShadow, light:fl, message:fd.msg, baseY:fd.pos[1], phase:Math.random()*Math.PI*2, rotSpeed:(Math.random()-0.5)*0.02+0.015 });
-});
-
-// ── DARK ROOM INITIAL STATE ──
-// All floaters start invisible; the beam + reveal animation will bring them in
-floaters.forEach(f => {
-  f.mesh.material.emissiveIntensity = 0;
-  f.aura.material.opacity = 0;
-  f.ring.material.opacity = 0;
-  f.light.intensity = 0;
-});
-
-// ── BEAM OF LIGHT on first floater (octahedron) ──
-const beamLight = new THREE.SpotLight(0xfff5d0, 6.0, 18, Math.PI / 11, 0.25, 1.5);
-beamLight.position.set(0, 9, 5);
-beamLight.target.position.set(0, 0.5, 5);
-scene.add(beamLight);
-scene.add(beamLight.target);
-
-// Volumetric cone — soft additive glow to sell the beam shape
-// CylinderGeometry top/bottom radii match spotlight cone at source and floor:
-// bottom = distance(9) * tan(PI/11) ≈ 2.64
-const beamCone = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.05, 2.64, 9, 24, 1, true),
-  new THREE.MeshBasicMaterial({
-    color: 0xfff8d0, transparent: true, opacity: 0.045,
-    side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false
-  })
-);
-beamCone.position.set(0, 4.5, 5);  // midpoint between source (y=9) and floor (y=0)
-scene.add(beamCone);
-
-// ── BEAMS OF LIGHT on remaining floaters (fade in after room reveals) ──
-floaters.forEach((f, i) => {
-  if (i === 0) return; // first floater's beam already created above
-  const px = floaterData[i].pos[0], pz = floaterData[i].pos[2];
-  const col = floaterData[i].color;
-  const bl = new THREE.SpotLight(col, 0, 18, Math.PI / 11, 0.25, 1.5);
-  bl.position.set(px, 13, pz);
-  bl.target.position.set(px, 0.5, pz);
-  scene.add(bl); scene.add(bl.target);
-  const cone = new THREE.Mesh(
-    // bottom = distance(13) * tan(PI/11) ≈ 3.82
-    new THREE.CylinderGeometry(0.05, 3.82, 13, 24, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: col, transparent: true, opacity: 0,
-      side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false
-    })
-  );
-  cone.position.set(px, 6.5, pz);
-  scene.add(cone);
-  f.beam = bl;
-  f.beamCone = cone;
-});
-
-let roomRevealed = false;
-let revealT = 0; // 0 = fully dark, 1 = fully lit
-
-// ══════════════════════════════════════════
-//  INPUT
-// ══════════════════════════════════════════
-const keys = {};
-const keyUIMap = { KeyW:'key-w', KeyA:'key-a', KeyS:'key-s', KeyD:'key-d', ArrowLeft:'key-left', ArrowRight:'key-right', Space:'key-space' };
-document.addEventListener('keydown', e => {
-  if (e.code === 'Space') e.preventDefault();
-  keys[e.code] = true;
-  if (keyUIMap[e.code]) document.getElementById(keyUIMap[e.code])?.classList.add('active');
-});
-document.addEventListener('keyup', e => {
-  keys[e.code] = false;
-  if (keyUIMap[e.code]) document.getElementById(keyUIMap[e.code])?.classList.remove('active');
-});
-
-let yaw = 0;
-const CAM_TURN = 2.2; // radians per second
-
-let tX = 0, tLookId = -1;
-const _tutTX = {}; // separate touch-X tracking for tutorial (before main listener mutates tX)
-renderer.domElement.addEventListener('touchstart', e => {
-  for (const t of e.changedTouches)
-    if (t.clientX > window.innerWidth * 0.4 && tLookId === -1) {
-      tX = t.clientX; tLookId = t.identifier;
-      _tutTX[t.identifier] = t.clientX;
-    }
-});
-renderer.domElement.addEventListener('touchmove', e => {
-  for (const t of e.changedTouches)
-    if (t.identifier === tLookId) { yaw -= (t.clientX - tX) * 0.003; tX = t.clientX; }
-});
-renderer.domElement.addEventListener('touchend',    e => { for (const t of e.changedTouches) if (t.identifier === tLookId) tLookId = -1; });
-renderer.domElement.addEventListener('touchcancel', e => { for (const t of e.changedTouches) if (t.identifier === tLookId) tLookId = -1; });
-
-// Virtual joystick
-const _joy = { active: false, id: -1, dx: 0, dy: 0 };
-const JR = 60;
-const _jZone  = document.getElementById('joystick-zone');
-const _jKnob  = document.getElementById('joystick-knob');
-
-_jZone.addEventListener('touchstart', e => {
-  e.preventDefault(); e.stopPropagation();
-  const t = e.changedTouches[0];
-  _joy.active = true; _joy.id = t.identifier; _joy.dx = 0; _joy.dy = 0;
-  _joy.rect = _jZone.getBoundingClientRect(); // cache once per gesture
-}, { passive: false });
-
-_jZone.addEventListener('touchmove', e => {
-  e.preventDefault();
-  const r = _joy.rect || _jZone.getBoundingClientRect();
-  for (const t of e.changedTouches) {
-    if (t.identifier !== _joy.id) continue;
-    let dx = t.clientX - (r.left + r.width  / 2);
-    let dy = t.clientY - (r.top  + r.height / 2);
-    const len = Math.sqrt(dx*dx + dy*dy);
-    if (len > JR) { dx = dx/len*JR; dy = dy/len*JR; }
-    _joy.dx = dx; _joy.dy = dy;
-    _jKnob.style.transform = `translate(${dx}px,${dy}px)`;
-  }
-}, { passive: false });
-
-const _endJoy = e => {
-  for (const t of e.changedTouches) if (t.identifier === _joy.id) {
-    _joy.active = false; _joy.dx = 0; _joy.dy = 0; _jKnob.style.transform = '';
-  }
-};
-_jZone.addEventListener('touchend',    _endJoy);
-_jZone.addEventListener('touchcancel', _endJoy);
-
-// Tap to interact — quick touch with minimal movement fires KeyE
-const _tapStarts = {};
-renderer.domElement.addEventListener('touchstart', e => {
-  for (const t of e.changedTouches)
-    _tapStarts[t.identifier] = { x: t.clientX, y: t.clientY, t: Date.now() };
-});
-renderer.domElement.addEventListener('touchend', e => {
-  for (const t of e.changedTouches) {
-    const s = _tapStarts[t.identifier];
-    if (!s) continue;
-    delete _tapStarts[t.identifier];
-    const dx = t.clientX - s.x, dy = t.clientY - s.y;
-    if (Date.now() - s.t < 280 && dx*dx + dy*dy < 225) {
-      keys['KeyE'] = true;
-      setTimeout(() => { keys['KeyE'] = false; }, 120);
-    }
-  }
-});
-renderer.domElement.addEventListener('touchcancel', e => {
-  for (const t of e.changedTouches) delete _tapStarts[t.identifier];
-});
-
-// ══════════════════════════════════════════
-//  TOAST
-// ══════════════════════════════════════════
-let toastTimer = null;
-let _toastSwapTimer = null;
-function showToast(msg) {
-  const el = document.getElementById('toast');
-  clearTimeout(toastTimer);
-  clearTimeout(_toastSwapTimer);
-  const wasVisible = el.classList.contains('visible');
-  el.classList.remove('visible');
-  _toastSwapTimer = setTimeout(() => {
-    el.textContent = msg;
-    // Double rAF: first frame commits layout at new text height,
-    // second frame begins the opacity transition from a stable position.
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      el.classList.add('visible');
-      toastTimer = setTimeout(() => el.classList.remove('visible'), 3800);
-    }));
-  }, wasVisible ? 460 : 20);
-}
-
-// ══════════════════════════════════════════
-//  TUTORIAL
-// ══════════════════════════════════════════
-const _tutOverlay  = document.getElementById('tut-overlay');
-const _tutStep     = document.getElementById('tut-step');
-const _tutMsg      = document.getElementById('tut-msg');
-const _tutHint     = document.getElementById('tut-hint');
-const _tutGuideDot = document.getElementById('tut-guide-dot');
-
-let tutStage = 0; // 0=swipe-right, 1=swipe-left, 2=move, 3=walk-to-shape, 4=interact, 5=done
-
-function _tutDismiss() {
-  _tutOverlay.classList.add('hidden');
-  setTimeout(() => {
-    _tutOverlay.style.display = 'none';
-    _tutOverlay.classList.remove('tut-top');
-  }, 550);
-  document.getElementById('key-space')?.classList.remove('tut-highlight');
-  _tutGuideDot.classList.remove('visible');
-  tutStage = 5;
-  // Free the preview renderer and all scene resources
-  if (_tutPreview) {
-    _tutPreview.scene.traverse(obj => {
-      if (obj.geometry) obj.geometry.dispose();
-      if (obj.material) {
-        if (obj.material.map) obj.material.map.dispose();
-        if (obj.material.emissiveMap) obj.material.emissiveMap.dispose();
-        obj.material.dispose();
-      }
-    });
-    _tutPreview.renderer.dispose();
-    _tutPreview = null;
-  }
-}
-
-function _tutShow(stage) {
-  tutStage = stage;
-  _tutStep.textContent = `Step ${stage + 1} of 5`;
-  document.getElementById('key-space')?.classList.remove('tut-highlight');
-  _tutGuideDot.classList.remove('visible');
-  _tutOverlay.classList.remove('tut-top');
-
-  const _gdotBall = _tutGuideDot.querySelector('.tut-gdot-ball');
-  // Force reflow so removing+re-adding 'visible' actually restarts child animations
-  void _tutGuideDot.offsetWidth;
-  if (stage === 0) {
-    _tutMsg.textContent = isMobile ? 'Swipe the orb right to rotate your view' : 'Press → to rotate your view';
-    _tutHint.innerHTML = isMobile
-      ? `<div style="display:flex;align-items:center;gap:10px;color:rgba(255,200,100,0.8)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.258a1 1 0 01-1.447.894L15 14"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M5 12h14M14 7l5 5-5 5"/></svg>
-        </div>`
-      : `<div style="display:flex;align-items:center;gap:8px;color:rgba(255,200,100,0.8)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.258a1 1 0 01-1.447.894L15 14"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg>
-          <div class="tut-k" style="width:36px;height:36px;font-size:16px;animation:tut-pulse 1.3s ease-in-out infinite">→</div>
-        </div>`;
-    if (isMobile) { _gdotBall.classList.remove('swipe-left'); void _tutGuideDot.offsetWidth; _tutGuideDot.classList.add('visible'); }
-  } else if (stage === 1) {
-    _tutMsg.textContent = isMobile ? 'Now swipe left to rotate the other way' : 'Press ← to rotate the other way';
-    _tutHint.innerHTML = isMobile
-      ? `<div style="display:flex;align-items:center;gap:10px;color:rgba(255,200,100,0.8)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M19 12H5M10 17l-5-5 5-5"/></svg>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.258a1 1 0 01-1.447.894L15 14"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg>
-        </div>`
-      : `<div style="display:flex;align-items:center;gap:8px;color:rgba(255,200,100,0.8)">
-          <div class="tut-k" style="width:36px;height:36px;font-size:16px;animation:tut-pulse 1.3s ease-in-out infinite">←</div>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22"><path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.258a1 1 0 01-1.447.894L15 14"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg>
-        </div>`;
-    if (isMobile) { _gdotBall.classList.add('swipe-left'); void _tutGuideDot.offsetWidth; _tutGuideDot.classList.add('visible'); }
-  } else if (stage === 2) {
-    _tutMsg.textContent = isMobile ? 'Use the joystick to walk' : 'Use WASD to move';
-    if (isMobile) _jZone.classList.add('visible');
-    _tutHint.innerHTML = isMobile
-      ? `<div class="tut-joy"><div class="tut-joy-knob"></div></div>`
-      : `<div class="tut-wasd"><div class="tut-wasd-row"><div class="tut-k">W</div></div><div class="tut-wasd-row"><div class="tut-k">A</div><div class="tut-k">S</div><div class="tut-k">D</div></div></div>`;
-  } else if (stage === 3) {
-    _tutMsg.textContent = 'Move towards the Octahedron ahead of you';
-    _tutHint.innerHTML = `<canvas id="tut-shape-canvas" width="72" height="72" style="border-radius:10px;"></canvas>`;
-    _tutOverlay.classList.add('tut-top');
-    _initTutPreview();
-  } else if (stage === 4) {
-    _tutMsg.textContent = isMobile ? 'Tap the object to interact' : 'Press Space to interact';
-    _tutHint.innerHTML = isMobile
-      ? ``
-      : `<div class="tut-k" style="width:auto;height:36px;padding:0 12px;font-size:12px;animation:tut-interact-anim 1.3s ease-in-out infinite;box-shadow:0 0 0 0 rgba(255,180,60,0.55),0 0 18px rgba(255,180,60,0.4)">space</div>`;
-    if (!isMobile) document.getElementById('key-space')?.classList.add('tut-highlight');
-    _tutOverlay.classList.add('tut-top');
-  }
-}
-
-// Track look direction — stage 0: arrow right, stage 1: arrow left (desktop)
-document.addEventListener('keydown', e => {
-  if (tutStage === 0 && e.code === 'ArrowRight') _tutShow(1);
-  if (tutStage === 1 && e.code === 'ArrowLeft')  _tutShow(2);
-});
-// Tutorial touch tracking uses _tutTX (independent of main listener's tX)
-renderer.domElement.addEventListener('touchmove', e => {
-  if (tutStage === 0 || tutStage === 1) {
-    for (const t of e.changedTouches) {
-      if (t.identifier === tLookId && _tutTX[t.identifier] !== undefined) {
-        const dx = t.clientX - _tutTX[t.identifier];
-        if (tutStage === 0 && dx >  8) _tutShow(1);
-        if (tutStage === 1 && dx < -8) _tutShow(2);
-        _tutTX[t.identifier] = t.clientX;
-      }
-    }
-  }
-}, { passive: true });
-
-// Mini preview renderer for tutorial step 3 (octahedron)
-let _tutPreview = null;
-function _initTutPreview() {
-  if (_tutPreview) return;
-  const canvas = document.getElementById('tut-shape-canvas');
-  if (!canvas) return;
-  const pr = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  pr.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  pr.setSize(72, 72);
-  const ps = new THREE.Scene();
-  const pc = new THREE.PerspectiveCamera(42, 1, 0.1, 10);
-  pc.position.set(0, 0.15, 2.2);
-  pc.lookAt(0, 0, 0);
-  ps.add(new THREE.AmbientLight(0xffdd88, 0.55));
-  const pl = new THREE.PointLight(0xff8800, 4.5, 6);
-  pl.position.set(1.2, 1.2, 2);
-  ps.add(pl);
-  // Main mesh — same material as the in-room floater
-  const pm = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.62),
-    new THREE.MeshPhysicalMaterial({
-      color: 0xffcc44, emissive: 0xff8800, emissiveIntensity: 1.8,
-      emissiveMap: makeFloaterTex('rune'),
-      roughness: 0.12, metalness: 0.55,
-      clearcoat: 0.45, clearcoatRoughness: 0.15
-    })
-  );
-  ps.add(pm);
-  // Aura shell
-  const aura = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.62),
-    new THREE.MeshBasicMaterial({
-      color: 0xffcc44, transparent: true, opacity: 0.12,
-      side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false
-    })
-  );
-  aura.scale.setScalar(1.22);
-  ps.add(aura);
-  // Orbit ring
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.62 + 0.19, 0.011, 6, 64),
-    new THREE.MeshBasicMaterial({
-      color: 0xffcc44, transparent: true, opacity: 0.36,
-      blending: THREE.AdditiveBlending, depthWrite: false
-    })
-  );
-  ring.rotation.x = 1.1;
-  ring.rotation.z = 0.4;
-  ps.add(ring);
-  _tutPreview = { renderer: pr, scene: ps, camera: pc, mesh: pm, aura, ring };
-}
-function _tickTutPreview() {
-  if (!_tutPreview || tutStage !== 3) return;
-  _tutPreview.mesh.rotation.y += 0.022;
-  _tutPreview.mesh.rotation.x += 0.009;
-  _tutPreview.aura.rotation.copy(_tutPreview.mesh.rotation);
-  _tutPreview.ring.rotation.y += 0.015;
-  _tutPreview.ring.rotation.z += 0.009;
-  _tutPreview.renderer.render(_tutPreview.scene, _tutPreview.camera);
-}
-
-// Start tutorial after short delay
-setTimeout(() => _tutShow(0), 900);
-
-// ══════════════════════════════════════════
-//  PARTICLE TRAIL
-// ══════════════════════════════════════════
-const MAX_P = 90;
-const pPos = new Float32Array(MAX_P*3);
-const pBuf = new THREE.BufferGeometry();
-pBuf.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
-scene.add(new THREE.Points(pBuf, new THREE.PointsMaterial({ color:0xff9933, size:0.09, transparent:true, opacity:0.42, sizeAttenuation:true, depthWrite:false })));
-const pData = Array.from({length:MAX_P}, () => ({x:0,y:0,z:0,life:0}));
-let pIdx=0, spawnAcc=0;
-
-function spawnP(x,z) {
-  const p = pData[pIdx++%MAX_P];
-  p.x=x+(Math.random()-0.5)*0.3; p.y=0.05+Math.random()*0.18; p.z=z+(Math.random()-0.5)*0.3; p.life=1;
-}
-function tickP(dt) {
-  let anyActive = false;
-  for(let i=0;i<MAX_P;i++){
-    const p=pData[i];
-    if(p.life>0){anyActive=true;p.life-=dt*0.72;p.y+=dt*0.07;}
-    pPos[i*3]=p.life>0?p.x:9999; pPos[i*3+1]=p.y; pPos[i*3+2]=p.z;
-  }
-  if (anyActive) pBuf.attributes.position.needsUpdate=true;
-}
-
-// ══════════════════════════════════════════
-//  LOOP
-// ══════════════════════════════════════════
-const clock = new THREE.Clock();
-const SPEED=4.2, BOUND=21;
-let eWas=false, iCD=0;
-const near={ref:null,dist:Infinity};
-const _fwd = new THREE.Vector3();
-const _rgt = new THREE.Vector3();
-const _camTarget = new THREE.Vector3();
-
-// Mobile frame-rate governor (caps to 60fps on high-refresh devices)
-let _mobileAcc = 0;
-const _MOBILE_TARGET = 1 / 60;
-// Per-frame counters for throttled subsystems
-let _moteFrame = 0;
-let _mmFrame   = 0;
-
-// (tutorial handles initial guidance)
-
-// Cached DOM references — queried once instead of every frame
-const _elKeySpace    = document.getElementById('key-space');
-const _elPrompt      = document.getElementById('interact-prompt');
-const _elToast       = document.getElementById('toast');
-const _elIprLabel    = document.getElementById('ipr-label');
-const _elIprIcon     = document.getElementById('ipr-icon');
-
-function animate() {
-  requestAnimationFrame(animate);
-  const rawDt = clock.getDelta();
-  // On mobile: accumulate time and only update/render at ~60fps
-  if (isMobile) {
-    _mobileAcc += rawDt;
-    if (_mobileAcc < _MOBILE_TARGET) return;
-  }
-  const dt = Math.min(isMobile ? _mobileAcc : rawDt, 0.05);
-  if (isMobile) _mobileAcc = 0;
-  const t  = clock.elapsedTime;
-
-  _fwd.set(Math.sin(yaw), 0, Math.cos(yaw));
-  _rgt.set(-Math.cos(yaw), 0, Math.sin(yaw));
-  let moving = false;
-
-  // Arrow keys rotate camera
-  if(keys['ArrowLeft'])  yaw += CAM_TURN * dt;
-  if(keys['ArrowRight']) yaw -= CAM_TURN * dt;
-
-  // WASD moves
-  if(keys['KeyW']) { player.position.addScaledVector(_fwd, SPEED*dt); moving=true; }
-  if(keys['KeyS']) { player.position.addScaledVector(_fwd,-SPEED*dt); moving=true; }
-  if(keys['KeyA']) { player.position.addScaledVector(_rgt,-SPEED*dt); moving=true; }
-  if(keys['KeyD']) { player.position.addScaledVector(_rgt, SPEED*dt); moving=true; }
-
-  // Virtual joystick movement
-  if (_joy.active && (Math.abs(_joy.dx) > 8 || Math.abs(_joy.dy) > 8)) {
-    player.position.addScaledVector(_rgt,  (_joy.dx / JR) * SPEED * dt);
-    player.position.addScaledVector(_fwd, -(_joy.dy / JR) * SPEED * dt);
-    moving = true;
-  }
-
-  player.position.x = Math.max(-BOUND, Math.min(BOUND, player.position.x));
-  player.position.z = Math.max(-BOUND, Math.min(BOUND, player.position.z));
-  player.position.y = 0;
-
-  // Orb pulse
-  const pulse = 1 + Math.sin(t*2.7)*0.06;
-  orbMesh.scale.setScalar(pulse);
-
-  // Room reveal — progress from 0 (dark) to 1 (fully lit) after first interaction
-  if (roomRevealed && revealT < 1) revealT = Math.min(1, revealT + dt * 0.32);
-  const _rSmooth = revealT * revealT * (3 - 2 * revealT); // smoothstep
-  ambientLight.intensity    = _rSmooth * 0.15;
-  beamLight.intensity       = Math.max(0, 1 - _rSmooth * 2.5) * 6.0;
-  beamCone.material.opacity = Math.max(0, 1 - _rSmooth * 2.5) * 0.045;
-
-  // Remaining floater beams fade IN with the reveal
-  floaters.forEach((f, i) => {
-    if (i === 0 || !f.beam) return;
-    f.beam.intensity = _rSmooth * 6.0;
-    f.beamCone.material.opacity = _rSmooth * 0.045;
-  });
-
-  orbLight.intensity    = 12.0 + Math.sin(t*2.4)*1.2;
-  fillLight.intensity   = 0.45 + Math.sin(t*1.8+1)*0.06;
-  featherLight.intensity= 0.15 + Math.sin(t*1.3+2)*0.02;
-
-  // Blob shadow follows orb
-  blobShadow.position.x = player.position.x;
-  blobShadow.position.z = player.position.z;
-  blobShadow.material.opacity = 0.72 - Math.sin(t*2.7)*0.08;
-
-  // Dust motes drift around player — throttled to every 2nd frame on all platforms
-  _moteFrame++;
-  if (_moteFrame % 2 === 0) {
-    for(let i=0;i<MOTE_N;i++){
-      motePhase[i] += dt*0.04;
-      motePos[i*3]   = player.position.x + Math.sin(motePhase[i]*1.1+i*0.7)*10;
-      motePos[i*3+1] = 0.25 + Math.abs(Math.sin(motePhase[i]*0.6+i*0.4))*3.5;
-      motePos[i*3+2] = player.position.z + Math.cos(motePhase[i]*0.9+i*0.3)*10;
-    }
-    moteGeo.attributes.position.needsUpdate = true;
-  }
-
-  // Particle trail
-  if(moving){ spawnAcc+=dt; if(spawnAcc>0.055){spawnP(player.position.x,player.position.z);spawnAcc=0;} }
-  tickP(dt);
-
-  // Tutorial step advancement
-  if (tutStage === 2 && moving) _tutShow(3);
-
-  // Floaters
-  near.ref=null; near.dist=Infinity;
-  floaters.forEach(f => {
-    f.phase += dt;
-    const floatY = Math.sin(f.phase*1.3)*0.14;
-    f.mesh.position.y = f.baseY + floatY;
-    f.mesh.rotation.x += f.rotSpeed;
-    f.mesh.rotation.y += f.rotSpeed*1.4;
-    f.light.position.copy(f.mesh.position);
-
-    // Aura tracks main mesh exactly
-    f.aura.position.copy(f.mesh.position);
-    f.aura.rotation.copy(f.mesh.rotation);
-
-    // Orbit ring spins on its own tilted axes
-    f.ring.position.copy(f.mesh.position);
-    f.ring.rotation.y += f.rotSpeed * 0.75;
-    f.ring.rotation.z += f.rotSpeed * 0.45;
-
-    // Shadow disc: tracks X/Z, opacity deepens as floater descends
-    f.fShadow.position.x = f.mesh.position.x;
-    f.fShadow.position.z = f.mesh.position.z;
-    f.fShadow.material.opacity = 0.4 - floatY * 0.8;
-
-    const dx=player.position.x-f.mesh.position.x, dz=player.position.z-f.mesh.position.z;
-    const dist2=dx*dx+dz*dz;
-    // Only sqrt when within influence radius (dist < 5 → dist2 < 25); saves 9 sqrts/frame when far
-    const prox=dist2<25 ? Math.max(0,1-Math.sqrt(dist2)/5) : 0;
-    f.mesh.material.emissiveIntensity = (1.4 + prox * 3.2) * _rSmooth;
-    f.aura.material.opacity = (0.07 + prox * 0.15) * _rSmooth;
-    f.ring.material.opacity  = (0.36 + prox * 0.28) * _rSmooth;
-    f.light.intensity = (0.9 + prox * 2.2) * _rSmooth;
-
-    if(dist2<near.dist){ near.dist=dist2; if(dist2<7.84)near.ref=f; }
-    // Advance tutorial when player reaches the octahedron
-    if (tutStage === 3 && f === floaters[0] && dist2 < 7.84) _tutShow(4);
-  });
-
-  // Interact
-  const eDown=keys['KeyE']||keys['Space'];
-
-  // Proximity prompt — project above the near object
-  if (near.ref && tutStage >= 3 && iCD <= 0 && !_elToast.classList.contains('visible')) {
-    const _wp = new THREE.Vector3();
-    near.ref.mesh.getWorldPosition(_wp);
-    _wp.y += 0.55; // offset just above object
-    _wp.project(camera);
-    const px = ( _wp.x * 0.5 + 0.5) * window.innerWidth;
-    const py = (-_wp.y * 0.5 + 0.5) * window.innerHeight;
-    _elPrompt.style.left = px + 'px';
-    _elPrompt.style.top  = py + 'px';
-    if (!_elPrompt.classList.contains('visible')) {
-      _elIprLabel.textContent = isMobile ? 'tap' : 'interact';
-      const iconEl = _elIprIcon;
-      if (isMobile) {
-        iconEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,210,120,0.95)" stroke-width="1.5" width="16" height="16"><path d="M12 3v2M12 19v2M3 12H1M23 12h-2M18.36 5.64l-1.41 1.41M7.05 16.95l-1.41 1.41M18.36 18.36l-1.41-1.41M7.05 7.05L5.64 5.64"/><circle cx="12" cy="12" r="4" fill="rgba(255,180,60,0.15)"/></svg>`;
-      } else {
-        iconEl.innerHTML = `<span style="font-family:Georgia,serif;font-size:9px;letter-spacing:0.05em;color:rgba(255,220,140,0.95)">spc</span>`;
-      }
-      _elPrompt.classList.add('visible');
-    }
-  } else {
-    _elPrompt.classList.remove('visible');
-  }
-  if(eDown&&!eWas&&near.ref&&iCD<=0){
-    const f=near.ref;
-    showToast(f.message);
-    if (!roomRevealed && f === floaters[0]) roomRevealed = true;
-    if (tutStage === 4) _tutDismiss();
-    iCD=1.0;
-    let b=0;
-    const burst=()=>{b+=0.04;f.mesh.scale.setScalar(1+Math.sin(b*Math.PI)*0.7);if(b<1)requestAnimationFrame(burst);else f.mesh.scale.setScalar(1);};
-    burst();
-    for(let i=0;i<14;i++){
-      const a=(i/14)*Math.PI*2, p=pData[pIdx++%MAX_P];
-      p.x=f.mesh.position.x+Math.cos(a)*0.6; p.y=f.mesh.position.y; p.z=f.mesh.position.z+Math.sin(a)*0.6; p.life=1;
-    }
-  }
-  eWas=eDown;
-  if(iCD>0)iCD-=dt;
-
-  _elKeySpace.classList.toggle('active', !!near.ref);
-
-  // Camera
-  const camX=player.position.x-Math.sin(yaw)*4.6;
-  const camZ=player.position.z-Math.cos(yaw)*4.6;
-  camera.position.lerp(_camTarget.set(camX, player.position.y+3.1, camZ), 0.1);
-  camera.lookAt(player.position.x, player.position.y+1.6, player.position.z);
-
-  renderer.render(scene, camera);
-  _tickTutPreview();
-  _mmFrame++;
-  if (!isMobile || _mmFrame % 3 === 0) drawMinimap();
-
-  // Position guide dot at the orb's screen projection
-  if (tutStage <= 1 && _tutGuideDot.classList.contains('visible')) {
-    const _orbWorld = new THREE.Vector3();
-    orbMesh.getWorldPosition(_orbWorld);
-    _orbWorld.project(camera);
-    const sx = ( _orbWorld.x * 0.5 + 0.5) * window.innerWidth;
-    const sy = (-_orbWorld.y * 0.5 + 0.5) * window.innerHeight;
-    _tutGuideDot.style.left = (sx - 10) + 'px';
-    _tutGuideDot.style.top  = (sy - 10) + 'px';
-  }
-}
-
-window.addEventListener('resize', () => {
-  camera.aspect=window.innerWidth/window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth,window.innerHeight);
-});
-
-animate();
-
-// ══════════════════════════════════════════
-//  MINIMAP
-// ══════════════════════════════════════════
-const _mm     = document.getElementById('minimap');
-const _mmCtx  = _mm.getContext('2d');
-const _mmWrap = document.getElementById('minimap-wrap');
-const MM_SIZE  = 120;  // canvas px
-const MM_WORLD = 48;   // world units across the map
-const MM_SCALE = MM_SIZE / MM_WORLD;
-const MM_CX    = MM_SIZE / 2;
-const MM_CY    = MM_SIZE / 2;
-const MM_R     = MM_SIZE / 2 - 1;
-
-function _mmPt(wx, wz) {
-  return [ MM_CX + wx * MM_SCALE, MM_CY + wz * MM_SCALE ];
-}
-
-function drawMinimap() {
-  if (!roomRevealed) return;
-  if (!_mmWrap.classList.contains('visible')) _mmWrap.classList.add('visible');
-
-  const ctx = _mmCtx;
-  ctx.clearRect(0, 0, MM_SIZE, MM_SIZE);
-  ctx.save();
-
-  // Circular clip
-  ctx.beginPath();
-  ctx.arc(MM_CX, MM_CY, MM_R, 0, Math.PI * 2);
-  ctx.clip();
-
-  // Background
-  ctx.fillStyle = 'rgba(4,2,1,0.82)';
-  ctx.fillRect(0, 0, MM_SIZE, MM_SIZE);
-
-  // Rotate entire world around canvas centre by player yaw
-  // so "forward" is always up, GTA-style
-  ctx.save();
-  ctx.translate(MM_CX, MM_CY);
-  ctx.rotate(yaw - Math.PI);   // forward (+Z) maps to canvas-down, so offset by π to flip it up
-  ctx.translate(-MM_CX, -MM_CY);
-
-  // Helper: world pos → canvas pos, relative to player (player = canvas centre)
-  const toMM = (wx, wz) => [
-    MM_CX + (wx - player.position.x) * MM_SCALE,
-    MM_CY + (wz - player.position.z) * MM_SCALE
-  ];
-
-  // Room boundary
-  ctx.strokeStyle = 'rgba(255,200,100,0.12)';
-  ctx.lineWidth = 1;
-  const [bx0, by0] = toMM(-23, -23);
-  const [bx1, by1] = toMM( 23,  23);
-  ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
-
-  // Floater dots
-  floaters.forEach((f, i) => {
-    const col = floaterData[i].color;
-    const cr = (col >> 16) & 0xff;
-    const cg = (col >>  8) & 0xff;
-    const cb =  col        & 0xff;
-    const [fx, fz] = toMM(f.mesh.position.x, f.mesh.position.z);
-    ctx.beginPath();
-    ctx.arc(fx, fz, 4.5, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${cr},${cg},${cb},0.18)`;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(fx, fz, 2.2, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${cr},${cg},${cb},0.9)`;
-    ctx.fill();
-  });
-
-  ctx.restore(); // end world rotation
-
-  // Player — fixed upward-pointing triangle at canvas centre
-  ctx.save();
-  ctx.translate(MM_CX, MM_CY);
-  ctx.beginPath();
-  ctx.moveTo(0, -7);
-  ctx.lineTo( 4, 4);
-  ctx.lineTo(-4, 4);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(255,235,160,0.97)';
-  ctx.shadowColor = 'rgba(255,180,60,0.9)';
-  ctx.shadowBlur = 7;
-  ctx.fill();
-  ctx.restore();
-
-  ctx.restore(); // end clip
-
-  // Outer border ring
-  ctx.beginPath();
-  ctx.arc(MM_CX, MM_CY, MM_R, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(255,200,100,0.28)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-}
-</script>
+<!-- Self-hosted r128 (was a CDN dependency) — removes a third-party DNS/connection on
+     cold load and lets Cloudflare cache it with the app. defer so HTML parsing (and the
+     load veil's first paint) isn't blocked; deferred + module scripts still run in order. -->
+<script defer src="three.min.js"></script>
+<script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -25,12 +25,20 @@ The experience is intended to be **embedded as an `<iframe>`** on the Skin Deep 
 ## Repository structure
 
 ```
-public/index.html   — The entire application (self-contained)
-public/orb_tex.png   — Player orb texture
-public/tile.png      — Floor and wall tile texture
+public/               — the web root served by Cloudflare Pages (the deployed site)
+  index.html          — markup + CSS; loads three.min.js then js/main.js (ES module)
+  three.min.js        — Three.js r128
+  js/                 — main.js (manifest), core.js (shared runtime), exhibits/
+  images/             — exhibition photo assets
+  orb_tex.webp        — Player orb texture
+  tile.webp           — Floor and wall tile texture
+
+optimize_textures.py  — dev-only texture compression script (not deployed)
+orb_tex.png / tile.png — source textures for re-optimising (not deployed)
 ```
 
-All game logic, UI, and shaders live inside `public/index.html`. There is no build process, bundler, or package manager. The `public/` directory is the web root served by Cloudflare Pages.
+The app is buildless ES modules — no bundler, no package manager, no compile step.
+Everything that ships lives under `public/`; the browser loads the modules directly.
 
 ---
 
@@ -43,7 +51,7 @@ All game logic, UI, and shaders live inside `public/index.html`. There is no bui
 2. Open `http://localhost:8080/` in a browser.
 3. Press `Ctrl+C` to stop.
 
-> The page must be served over HTTP (not opened as a `file://` URL) because textures are loaded as separate files.
+> The page must be served over HTTP (not opened as a `file://` URL) because textures and modules are loaded as separate files.
 
 ---
 

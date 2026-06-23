@@ -18,11 +18,13 @@ __pycache__/
 # Dev artefacts (these live on the dev branch, not main)
 _img_dataurl.txt
 _img2_dataurl.txt
-image.png
-image2.png
+/image.png
+/image2.png
 extract_textures.py
 compress_textures.py
 plan.md
+exhibit-load-check.png
+.playwright-mcp/
 
 # Copilot instructions (local only, not branch-specific)
 .github/copilot-instructions.md
