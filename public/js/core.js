@@ -220,11 +220,29 @@ function _drawInstagramGlyph(ctx, cx, cy, s, color) {
   ctx.restore();
 }
 
+// Draw a globe glyph (outline + equator + meridian + one parallel) centred at (cx,cy) within a
+// square of side `s`. Pure canvas — denotes a website/reference link beside an info-card label,
+// the website counterpart to the Instagram glyph above.
+function _drawGlobeGlyph(ctx, cx, cy, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, s * 0.09);
+  ctx.lineJoin = 'round';
+  const r = s * 0.46;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();                  // outline
+  ctx.beginPath(); ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy); ctx.stroke();      // equator
+  ctx.beginPath(); ctx.ellipse(cx, cy, r * 0.46, r, 0, 0, Math.PI * 2); ctx.stroke(); // meridian
+  ctx.beginPath();                                                                    // upper parallel
+  ctx.moveTo(cx - r * 0.86, cy - r * 0.5); ctx.lineTo(cx + r * 0.86, cy - r * 0.5); ctx.stroke();
+  ctx.restore();
+}
+
 // Draw an Instagram link row on an info card: the IG glyph, then the @handle (link-bright +
 // underlined), centred as one block at baseline `y`, with a small "open profile" prompt beneath.
 // Returns the hotspot { u0,v0,u1,v1,url } spanning the glyph + handle so a click/tap anywhere on
 // the row opens the profile. `ctx` font is set internally; W,H are the card's logical size.
-function _instagramLink(ctx, { handle, url, cx, y, W, H, hint }) {
+// Pass noPrompt to suppress the per-row prompt (when several link rows share one prompt beneath).
+function _instagramLink(ctx, { handle, url, cx, y, W, H, hint, noPrompt }) {
   const GS = 13, GAP = 7;                            // glyph side + glyph→text gap
   ctx.font = '400 12px Georgia, serif';
   const tw = ctx.measureText(handle).width;
@@ -240,11 +258,48 @@ function _instagramLink(ctx, { handle, url, cx, y, W, H, hint }) {
   ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(textLeft, y + 4); ctx.lineTo(textLeft + tw, y + 4); ctx.stroke();
   ctx.textAlign = 'center';
-  const prompt = hint || (window.matchMedia('(pointer: coarse)').matches
-    ? 'Tap to open profile' : 'Click to open profile');
-  ctx.fillStyle = 'rgba(255,200,100,0.4)';
-  ctx.font = '400 9px Georgia, serif';
-  ctx.fillText(prompt, cx, y + 16);
+  if (!noPrompt) {
+    const prompt = hint || (window.matchMedia('(pointer: coarse)').matches
+      ? 'Tap to open profile' : 'Click to open profile');
+    ctx.fillStyle = 'rgba(255,200,100,0.4)';
+    ctx.font = '400 9px Georgia, serif';
+    ctx.fillText(prompt, cx, y + 16);
+  }
+  ctx.textAlign = prevAlign;
+  const PADX = 9, PADT = 15, PADB = 7;
+  return {
+    u0: (left - PADX) / W, u1: (left + blockW + PADX) / W,
+    v0: 1 - (y + PADB) / H, v1: 1 - (y - PADT) / H, url,
+  };
+}
+
+// Draw a website/reference link row on an info card: the globe glyph, then `label` (link-bright +
+// underlined), centred as one block at baseline `y`, with an optional "open" prompt beneath. The
+// website counterpart to _instagramLink — same geometry + hotspot, so a click/tap anywhere on the
+// row opens `url`. Pass noPrompt when several link rows share one prompt beneath.
+function _websiteLink(ctx, { label, url, cx, y, W, H, hint, noPrompt }) {
+  const GS = 13, GAP = 7;                            // glyph side + glyph→text gap
+  ctx.font = '400 12px Georgia, serif';
+  const tw = ctx.measureText(label).width;
+  const blockW = GS + GAP + tw;
+  const left = cx - blockW / 2;
+  _drawGlobeGlyph(ctx, left + GS / 2, y - 4, GS, 'rgba(255,214,130,0.82)');
+  const textLeft = left + GS + GAP;
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(255,214,130,0.72)';         // brighter than body text so it reads as a link
+  ctx.fillText(label, textLeft, y);
+  ctx.strokeStyle = 'rgba(255,200,100,0.4)';        // underline cues it's tappable (no hover on mobile)
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(textLeft, y + 4); ctx.lineTo(textLeft + tw, y + 4); ctx.stroke();
+  ctx.textAlign = 'center';
+  if (!noPrompt) {
+    const prompt = hint || (window.matchMedia('(pointer: coarse)').matches
+      ? 'Tap to open' : 'Click to open');
+    ctx.fillStyle = 'rgba(255,200,100,0.4)';
+    ctx.font = '400 9px Georgia, serif';
+    ctx.fillText(prompt, cx, y + 16);
+  }
   ctx.textAlign = prevAlign;
   const PADX = 9, PADT = 15, PADB = 7;
   return {
@@ -261,7 +316,8 @@ function _instagramLink(ctx, { handle, url, cx, y, W, H, hint }) {
 // type. Same warm border/vignette/corner treatment as the landscape card, scaled up. The engine's
 // outer frame + focus fill come for free via the texture's portrait aspect (set on userData).
 // spec: { kicker?, title:[lines], titleSize?, tagline?, byline?, body?:[lines], credits?,
-//         handles?:[{handle,url}] }. Returns a CanvasTexture with userData.{aspect,hotspots}.
+//         handles?:[{handle,url}], links?:[{label,url}] }. Returns a CanvasTexture with
+//         userData.{aspect,hotspots}. handles render with the IG glyph, links with the globe glyph.
 function _buildInfoCardPortrait(spec) {
   const W = 600, H = 1066;          // 9:16 — fills a phone screen at focus
   const SS = 2;                     // 1200×2132 backing — crisp at full-screen focus
@@ -362,20 +418,21 @@ function _buildInfoCardPortrait(spec) {
     ctx.beginPath(); ctx.moveTo(cx - 150, y); ctx.lineTo(cx + 150, y); ctx.stroke();
   });
 
-  // Instagram handle row(s) — stacked vertically (one per line) so each is a comfortable tap
-  // target on a phone; a single prompt sits beneath the last. Larger glyph/text than the
-  // landscape _instagramLink. Hotspots are recorded at the FINAL (centred) baseline.
+  // Link row(s) — IG handles + website links, stacked vertically (one per line) so each is a
+  // comfortable tap target on a phone; a single prompt sits beneath the last. Larger glyph/text
+  // than the landscape helpers. Hotspots are recorded at the FINAL (centred) baseline.
   const GS = 22, GAP = 11;
-  const drawHandle = (h, y) => {
+  const drawRow = (row, y) => {
     ctx.font = '400 22px Georgia, serif';
-    const tw = ctx.measureText(h.handle).width;
+    const tw = ctx.measureText(row.label).width;
     const blockW = GS + GAP + tw;
     const left = cx - blockW / 2;
-    _drawInstagramGlyph(ctx, left + GS / 2, y - 7, GS, 'rgba(255,214,130,0.82)');
+    if (row.kind === 'web') _drawGlobeGlyph(ctx, left + GS / 2, y - 7, GS, 'rgba(255,214,130,0.82)');
+    else _drawInstagramGlyph(ctx, left + GS / 2, y - 7, GS, 'rgba(255,214,130,0.82)');
     const textLeft = left + GS + GAP;
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(255,214,130,0.74)';
-    ctx.fillText(h.handle, textLeft, y);
+    ctx.fillText(row.label, textLeft, y);
     ctx.strokeStyle = 'rgba(255,200,100,0.4)';
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(textLeft, y + 7); ctx.lineTo(textLeft + tw, y + 7); ctx.stroke();
@@ -383,16 +440,19 @@ function _buildInfoCardPortrait(spec) {
     const PADX = 16, PADT = 28, PADB = 16;            // generous — finger-sized tap target
     hotspots.push({
       u0: (left - PADX) / W, u1: (left + blockW + PADX) / W,
-      v0: 1 - (y + PADB) / H, v1: 1 - (y - PADT) / H, url: h.url,
+      v0: 1 - (y + PADB) / H, v1: 1 - (y - PADT) / H, url: row.url,
     });
   };
-  const handles = spec.handles || [];
-  handles.forEach((h, i) => push(i === 0 ? 58 : 52, (y) => drawHandle(h, y)));
+  const rows = [
+    ...(spec.handles || []).map((h) => ({ kind: 'ig', label: h.handle, url: h.url })),
+    ...(spec.links || []).map((l) => ({ kind: 'web', label: l.label, url: l.url })),
+  ];
+  rows.forEach((r, i) => push(i === 0 ? 58 : 52, (y) => drawRow(r, y)));
 
-  if (handles.length) push(32, (y) => {
+  if (rows.length) push(32, (y) => {
     ctx.fillStyle = 'rgba(255,200,100,0.4)';
     ctx.font = '400 15px Georgia, serif';
-    ctx.fillText(handles.length > 1 ? 'Tap a handle to open the profile' : 'Tap to open profile', cx, y);
+    ctx.fillText(rows.length > 1 ? 'Tap a link to open' : 'Tap to open', cx, y);
   });
 
   let total = 0;
@@ -1382,6 +1442,11 @@ function _onWelcomeTap() { _dismissWelcome(); }
 function _dismissWelcome() {
   if (!_welcomeOpen) return;
   _welcomeOpen = false;
+  // Re-arm the DPR governor's settle window (it was paused while the card was open) so it judges
+  // fresh post-dismiss frames rather than the residual reveal burst. _emaReset is left alone — it's
+  // a one-shot already spent on the cold-start settle.
+  _warmupUntil = performance.now() + 700;
+  _emaFrameMs  = 1000 / 60;
   _welcomeOverlay.classList.add('hidden');
   document.removeEventListener('keydown', _onWelcomeKey);
   renderer.domElement.removeEventListener('pointerdown', _onWelcomeTap);
@@ -2210,7 +2275,9 @@ const core = {
   initTex: _initTex,
   cardTextHotspot: _cardTextHotspot,
   instagramLink: _instagramLink,
+  websiteLink: _websiteLink,
   drawInstagramGlyph: _drawInstagramGlyph,
+  drawGlobeGlyph: _drawGlobeGlyph,
   buildInfoCardPortrait: _buildInfoCardPortrait,
   scheduleIdle: _scheduleIdle,
   showToast,
@@ -2308,9 +2375,12 @@ function animate() {
   }
   _emaFrameMs = _emaFrameMs * 0.9 + (_nowTs - _lastFrameTs) * 0.1;
   _lastFrameTs = _nowTs;
-  // Paused while an exhibit is open so an FPS dip can't claw back card resolution, and
-  // during the initial settle window so load-in cost can't trigger a spurious DPR drop.
-  if (_nowTs >= _warmupUntil && !exhibitPhase && !activeExhibit && ++_drsFrame >= _DRS_INTERVAL) {
+  // Paused while an exhibit is open so an FPS dip can't claw back card resolution, during the
+  // initial settle window so load-in cost can't trigger a spurious DPR drop, and while the welcome
+  // card is open — the reveal is a second load-in burst (welcome's own renderer + texture warm-ups)
+  // long after the cold-start window, so judging it would drop resolution then climb back (a visible
+  // "throttle, then stabilise"). _dismissWelcome re-arms _warmupUntil so it re-judges on fresh frames.
+  if (_nowTs >= _warmupUntil && !exhibitPhase && !activeExhibit && !_welcomeOpen && ++_drsFrame >= _DRS_INTERVAL) {
     _drsFrame = 0;
     // First judgement after the settle window: discard the average accumulated during cold-start
     // (module eval + shader compile + first GPU-warmed frames) so those one-time slow frames
@@ -2527,8 +2597,11 @@ function animate() {
   _leaveExhibitRadius();
 
   // Spread queued exhibit warm-up work across frames. Paused while an exhibit is
-  // opening/closing/open so its spin-in animation keeps the full frame budget.
-  if (!exhibitPhase && !activeExhibit) _drainWarmQueue(moving);
+  // opening/closing/open so its spin-in animation keeps the full frame budget, and while the
+  // welcome card is open so the heavy card builds stay out of the (visible, translucent) reveal
+  // pause — they resume the instant the card is dismissed. Proximity preload still warms whatever
+  // the player approaches afterwards, so first-open stays hitch-free.
+  if (!exhibitPhase && !activeExhibit && !_welcomeOpen) _drainWarmQueue(moving);
 
   // Interact (Space / E) and dismiss (Escape — desktop only)
   const eDown = keys['KeyE'] || keys['Space'];

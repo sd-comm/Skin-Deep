@@ -19,6 +19,7 @@ function makeOutsaedaCardTex() {
     body: ['The abaya reinvented as techwear:', 'utilitarian, active streetwear for the', 'modern modest wardrobe.'],
     credits: 'VFILES  ·  London  ·  modest tech wear',
     handles: [{ handle: '@saeedahhaque', url: 'https://instagram.com/saeedahhaque' }],
+    links: [{ label: 'saeedahhaque.com', url: 'https://saeedahhaque.com/' }],
   });
 
   const W = 512, H = 384;
@@ -91,20 +92,29 @@ function makeOutsaedaCardTex() {
 
   ctx.fillStyle = 'rgba(255,200,100,0.52)';
   ctx.font = '400 11px Georgia, serif';
-  ctx.fillText('VFILES  ·  London  ·  modest tech wear', cx, 278);
+  ctx.fillText('VFILES  ·  Modest Streetwear', cx, 278);
 
   ctx.strokeStyle = 'rgba(255,200,100,0.14)';
   ctx.beginPath();
-  ctx.moveTo(cx - 110, 294); ctx.lineTo(cx + 110, 294);
+  ctx.moveTo(cx - 110, 290); ctx.lineTo(cx + 110, 290);
   ctx.stroke();
 
-  // Handle — Instagram glyph + a live link to the profile, with a prompt; clickable while focused
-  const HANDLE = '@saeedahhaque', HANDLE_URL = 'https://instagram.com/saeedahhaque';
-  const hotspot = core.instagramLink(ctx, { handle: HANDLE, url: HANDLE_URL, cx, y: 320, W, H });
+  // Links — the Instagram profile + the studio website, each a live hotspot clickable while
+  // focused; per-row prompts suppressed in favour of one shared prompt beneath.
+  const igHot = core.instagramLink(ctx, {
+    handle: '@saeedahhaque', url: 'https://instagram.com/saeedahhaque', cx, y: 310, W, H, noPrompt: true,
+  });
+  const siteHot = core.websiteLink(ctx, {
+    label: 'saeedahhaque.com', url: 'https://saeedahhaque.com/', cx, y: 334, W, H, noPrompt: true,
+  });
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,200,100,0.4)';
+  ctx.font = '400 9px Georgia, serif';
+  ctx.fillText('Click a link to open', cx, 354);
 
   const tex = new THREE.CanvasTexture(cv);
   tex.userData = tex.userData || {}; // fresh textures can have undefined userData in this Three build
-  tex.userData.hotspots = [hotspot];
+  tex.userData.hotspots = [igHot, siteHot];
   return tex;
 }
 

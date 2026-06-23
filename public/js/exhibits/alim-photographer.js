@@ -18,6 +18,7 @@ function makePhotographerCardTex() {
     body: ['Documents Islamic architecture', '& the lived colour of faith', 'across Southeast Asia.'],
     credits: '★  reFocus 2025 Gold  ·  Unsplash 2025',
     handles: [{ handle: '@apyfz', url: 'https://instagram.com/apyfz' }],
+    links: [{ label: 'reFocus Awards', url: 'https://refocus-awards.com/interviews/mohammed-alim-1st-place-winner-or-non-professional' }],
   });
 
   const W = 512, H = 384;
@@ -103,16 +104,25 @@ function makePhotographerCardTex() {
   // Award divider
   ctx.strokeStyle = 'rgba(255,200,100,0.14)';
   ctx.beginPath();
-  ctx.moveTo(cx - 90, 298); ctx.lineTo(cx + 90, 298);
+  ctx.moveTo(cx - 90, 290); ctx.lineTo(cx + 90, 290);
   ctx.stroke();
 
-  // Handle — Instagram glyph + a live link to the profile, with a prompt; clickable while focused
-  const HANDLE = '@apyfz', HANDLE_URL = 'https://instagram.com/apyfz';
-  const hotspot = core.instagramLink(ctx, { handle: HANDLE, url: HANDLE_URL, cx, y: 328, W, H });
+  // Links — the Instagram profile + the reFocus Awards interview, each a live hotspot clickable
+  // while focused; per-row prompts suppressed in favour of one shared prompt beneath.
+  const igHot = core.instagramLink(ctx, {
+    handle: '@apyfz', url: 'https://instagram.com/apyfz', cx, y: 310, W, H, noPrompt: true,
+  });
+  const siteHot = core.websiteLink(ctx, {
+    label: 'reFocus Awards', url: 'https://refocus-awards.com/interviews/mohammed-alim-1st-place-winner-or-non-professional', cx, y: 334, W, H, noPrompt: true,
+  });
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,200,100,0.4)';
+  ctx.font = '400 9px Georgia, serif';
+  ctx.fillText('Click a link to open', cx, 354);
 
   const tex = new THREE.CanvasTexture(cv);
   tex.userData = tex.userData || {}; // fresh textures can have undefined userData in this Three build
-  tex.userData.hotspots = [hotspot];
+  tex.userData.hotspots = [igHot, siteHot];
   return tex;
 }
 
