@@ -20,7 +20,7 @@
 import { core } from '../core.js';
 
 const {
-  THREE, scene, isMobile, floaters, MAX_ANISO,
+  THREE, scene, camera, isMobile, floaters, MAX_ANISO,
   CRATE_DIST, OPEN_DUR, CLOSE_DUR,
   registerExhibit,
   initTex: _initTex,
@@ -28,6 +28,9 @@ const {
   restoreFloater: _restoreExhibitFloater,
   disposeObject3D: _disposeCrateObject,
   setTriggerFloater, beginExhibitDPR, endExhibitDPR, hidePrompt,
+  computeFocusTarget: _computeExhibitFocusTarget, syncCamera: _syncCamera,
+  showFocusEscapeHint: _showFocusEscapeHint, hideFocusEscapeHint: _hideFocusEscapeHint,
+  elMmWrap: _elMmWrap, elUi: _elUi, jZone: _jZone,
 } = core;
 
 const MPC = {
@@ -37,17 +40,49 @@ const MPC = {
   faceTex: null,    // baked top-surface faceplate (branding + labels + flush buttons)
   screenTex: null,  // LCD emissive map
   grilleTex: null,  // speaker-grille slats
+  haloTex: null,    // soft glowing ring drawn around the pad section
   screenMat: null,  // kept so update() can flicker the LCD emissive
+  section: null,    // THREE.Group: deck + 16 pads + halo, lifts out into focus
+  halo: null,       // halo mesh framing the whole pad section (pulsed in update)
+  haloMat: null,    // kept so update() can pulse the halo opacity
+  padMat: null,     // shared pad material — emissive ramps up in focus so pads read
+  padDeckMat: null, // shared deck material — emissive ramps up in focus
+  deck: null,       // deck mesh ref — used to measure the focused content for recentring
 };
 
 const MPC_SIZE = 5.6;            // overall body width; every part is a fraction of this
 const MPC_Y    = 2.1;            // group-center height — scaled with MPC_SIZE (~0.38×) so the tilted unit keeps its floor clearance
 const MPC_TILT = 0.32 * Math.PI; // backward tilt so the top control surface faces the player
+const MPC_FOCUS_DUR = 0.55;      // pad-section focus / unfocus tween (matches the crate's feel)
+const MPC_FOCUS_MARGIN = 1.25;   // >1 leaves breathing room around the focused grid (vs edge-to-edge)
 const _mpcFwd  = new THREE.Vector3();
 
 let mpcPhase = null;   // 'opening' | 'open' | 'closing' | null
 let mpcT     = 0;
 let mpcGroup = null;
+
+// ── Pad-section focus state (the whole 4×4 deck lifts out to front-facing focus) ──
+let mpcFocusPhase = null;   // 'focusing' | 'focused' | 'unfocusing' | null
+let mpcFocusT     = 0;
+const _secFromPos  = new THREE.Vector3();
+const _secFromQuat = new THREE.Quaternion();
+let   _secFromScale = 1;
+const _secToPos    = new THREE.Vector3();
+const _secToQuat   = new THREE.Quaternion();
+let   _secToScale  = 1;
+const _secLerpQuat = new THREE.Quaternion();
+const _secHomeMat  = new THREE.Matrix4();     // section's home local matrix (filled once we know W/D/topY)
+const _tmpMat      = new THREE.Matrix4();
+const _tmpScale    = new THREE.Vector3();
+// Pre-rotation turning the section's top surface (+Y) toward the camera, so the
+// pad grid lands flat-on like a focused record instead of edge-on.
+const _faceQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+// Scratch for measuring + recentring the focused content on screen.
+const _focusBox  = new THREE.Box3();
+const _focusCtr  = new THREE.Vector3();
+const _camDir    = new THREE.Vector3();
+const _toCtr     = new THREE.Vector3();
+const _lateral   = new THREE.Vector3();
 
 // ── Body proportions (a flat slab) ──
 const W = MPC_SIZE;          // width  (left↔right)
@@ -61,6 +96,14 @@ const topY = H / 2;          // y of the top control surface
 //  maps 1:1 onto the top plane, and 3D props placed with the same (u,v) line up with it.)
 const fx = u => (u - 0.5) * W;
 const fz = v => (v - 0.5) * D;
+
+// Pad-section geometry: the deck spans W*0.43 × D*0.44, centred at (0.76, 0.62) in UV.
+// The section group's origin is the deck centre so it scales/rotates about itself.
+const SEC_CX = fx(0.76);   // deck centre x (model coords)
+const SEC_CZ = fz(0.62);   // deck centre z
+const SEC_W  = W * 0.43;   // deck planar width  (horizontal once focused)
+const SEC_H  = D * 0.44;   // deck planar depth  (vertical once focused)
+_secHomeMat.makeTranslation(SEC_CX, topY, SEC_CZ);
 
 // ── small canvas helpers ──
 function _rr(x, cx, cy, w, h, r) {
@@ -223,6 +266,25 @@ function makeMpcGrilleTex() {
   return new THREE.CanvasTexture(c);
 }
 
+// Select halo — a soft amber glowing rounded-square ring with a transparent center,
+// so it reads as an outline around the pad (which shows through). Used additively.
+function makeMpcHaloTex() {
+  const S = 256;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const x = c.getContext('2d');
+  const inset = S * 0.10;   // keep the ring near the plane edge so it can wrap the outer pads
+  // Stroke the same rounded rect several times with growing blur for a layered bloom.
+  x.strokeStyle = 'rgba(255,205,120,0.95)';
+  x.shadowColor = 'rgba(255,185,90,0.95)';
+  for (let i = 0; i < 4; i++) {
+    x.shadowBlur = 14 + i * 12;
+    x.lineWidth  = 8 - i * 1.5;
+    _rr(x, inset, inset, S - inset * 2, S - inset * 2, 26);
+    x.stroke();
+  }
+  return new THREE.CanvasTexture(c);
+}
+
 // Assemble the MPC from primitives. Built once, cached on MPC._model, reused across opens.
 function _buildMpc() {
   const g = new THREE.Group();
@@ -236,8 +298,13 @@ function _buildMpc() {
     emissive: 0x2f6a44, emissiveMap: MPC.screenTex, emissiveIntensity: 0.5,
   });
   const grilleMat = new THREE.MeshStandardMaterial({ map: MPC.grilleTex, roughness: 0.85, metalness: 0.0 });
-  const padDeckMat = new THREE.MeshStandardMaterial({ color: 0xbcc0c7, roughness: 0.55, metalness: 0.06 });
-  const padMat    = new THREE.MeshStandardMaterial({ color: 0x24272d, roughness: 0.7, metalness: 0.08 });
+  // Deck + pads carry an emissive that's dark/off in the room but ramps up in focus —
+  // away from the orb the section would otherwise read as black-on-black, so this self-
+  // lights it so all 16 pads stay visible and centred. (emissiveIntensity driven in update)
+  const padDeckMat = new THREE.MeshStandardMaterial({ color: 0xbcc0c7, roughness: 0.55, metalness: 0.06, emissive: 0x6a6f78, emissiveIntensity: 0 });
+  const padMat    = new THREE.MeshStandardMaterial({ color: 0x24272d, roughness: 0.7, metalness: 0.08, emissive: 0x3a3e45, emissiveIntensity: 0 });
+  MPC.padMat = padMat;
+  MPC.padDeckMat = padDeckMat;
   const knobMat   = new THREE.MeshStandardMaterial({ color: 0xd7d0c0, roughness: 0.38, metalness: 0.14 });
   const redMat    = new THREE.MeshStandardMaterial({ color: 0xb22f46, roughness: 0.42, metalness: 0.1 });
   const wheelMat  = new THREE.MeshStandardMaterial({ color: 0xd8d1c0, roughness: 0.34, metalness: 0.16 });
@@ -298,20 +365,48 @@ function _buildMpc() {
   const cur = new THREE.Mesh(new THREE.BoxGeometry(W * 0.05, 0.025, D * 0.05), knobMat);
   cur.position.set(fx(0.35), topY + 0.014, fz(0.575)); g.add(cur);
 
-  // ── Raised pad deck + 4×4 drum pads (individually addressable for Step 2) ──
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(W * 0.43, 0.03, D * 0.44), padDeckMat);
-  deck.position.set(fx(0.76), topY + 0.015, fz(0.62)); g.add(deck);
+  // ── Pad section: raised deck + 4×4 drum pads + select halo, grouped so the whole
+  //    thing can lift out into front-facing focus (like a vinyl record). The group's
+  //    origin sits at the deck centre, so it scales/rotates about itself; children are
+  //    positioned relative to that centre. ──
+  const section = new THREE.Group();
+  section.position.set(SEC_CX, topY, SEC_CZ);
+
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(SEC_W, 0.03, SEC_H), padDeckMat);
+  deck.position.set(0, 0.015, 0); section.add(deck);
+  MPC.deck = deck;
   const padGeo = new THREE.BoxGeometry(W * 0.090, 0.05, D * 0.090);
   MPC.pads = [];
   for (let ri = 0; ri < 4; ri++) {
     for (let ci = 0; ci < 4; ci++) {
       const pad = new THREE.Mesh(padGeo, padMat);
-      pad.position.set(fx(0.595 + ci * 0.108), topY + 0.055, fz(0.46 + ri * 0.108));
+      pad.position.set(fx(0.595 + ci * 0.108) - SEC_CX, 0.055, fz(0.46 + ri * 0.108) - SEC_CZ);
       pad.userData.padIndex = (3 - ri) * 4 + ci;   // bottom-left = PAD 1
-      g.add(pad);
+      section.add(pad);
       MPC.pads.push(pad);
     }
   }
+
+  // ── Select halo: a glowing frame lying flat over the whole pad section, signalling
+  // it's ready to be brought into focus. Sized a touch larger than the deck; pulsed in
+  // update(). Hidden once focused. ──
+  const halo = new THREE.Mesh(
+    new THREE.PlaneGeometry(SEC_W * 1.42, SEC_H * 1.40),
+    new THREE.MeshBasicMaterial({
+      map: MPC.haloTex, transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }),
+  );
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.set(0, 0.09, 0);
+  halo.renderOrder = 6;
+  halo.visible = false;   // update() reveals it once the unit is fully open
+  section.add(halo);
+  MPC.halo = halo;
+  MPC.haloMat = halo.material;
+
+  g.add(section);
+  MPC.section = section;
 
   // Tilt the whole console back so the top control surface faces the player.
   g.rotation.x = MPC_TILT;
@@ -323,6 +418,7 @@ function _buildMpcAssets() {
   MPC.faceTex   = makeMpcFaceTex();   _initTex(MPC.faceTex);
   MPC.screenTex = makeMpcScreenTex(); _initTex(MPC.screenTex);
   MPC.grilleTex = makeMpcGrilleTex(); _initTex(MPC.grilleTex);
+  MPC.haloTex   = makeMpcHaloTex();   _initTex(MPC.haloTex);
   MPC._model = _buildMpc();
   MPC._built = true;
 }
@@ -351,6 +447,9 @@ function _openMpc(px, pz, openYaw) {
 }
 
 function _closeMpc() {
+  // The section may still be reparented to the scene (mid-focus dismiss) — re-home it so
+  // it travels with the cached model rather than being orphaned / disposed separately.
+  if (mpcFocusPhase || (MPC.section && MPC.section.parent !== MPC._model)) _resetMpcFocus();
   if (mpcGroup) {
     if (mpcGroup.userData.model) mpcGroup.remove(mpcGroup.userData.model); // keep the cached model
     _disposeCrateObject(mpcGroup);
@@ -359,15 +458,136 @@ function _closeMpc() {
   }
   mpcPhase = null;
   mpcT     = 0;
+  _elMmWrap.classList.remove('focus-hidden');
+  _elUi?.classList.remove('focus-hidden');
+  _jZone.classList.remove('focus-hidden');
   endExhibitDPR();
   _restoreExhibitFloater();
 }
 
 function _dismissMpc() {
   if (!mpcPhase || mpcPhase === 'closing') return;
+  if (mpcFocusPhase) _resetMpcFocus();   // snap the section home so the cached model stays intact
   mpcPhase = 'closing';
   mpcT = 1;
   _restoreExhibitFloater();
+}
+
+// ── PAD-SECTION FOCUS — the whole deck lifts out of the unit, turns flat-on, and
+//    scales up to fill the view, reusing the carousel/crate focus maths. ──
+
+// Live home (world) transform of the section had it stayed inside the model — the unit
+// bobs each frame, so the unfocus tween re-targets this every frame.
+function _sectionHomeWorld(outPos, outQuat) {
+  MPC._model.updateWorldMatrix(true, false);
+  _tmpMat.multiplyMatrices(MPC._model.matrixWorld, _secHomeMat);
+  _tmpMat.decompose(outPos, outQuat, _tmpScale);
+  return _tmpScale.x;
+}
+
+function _refreshMpcFocusTarget() {
+  // Inflate the target panel size by the margin so the grid fills less than the full
+  // viewport — leaving a clear border so no pads run off the edge.
+  _secToScale = _computeExhibitFocusTarget(_secToPos, _secToQuat, SEC_W * MPC_FOCUS_MARGIN, SEC_H * MPC_FOCUS_MARGIN);
+  _secToQuat.multiply(_faceQuat);   // turn the pad-grid top toward the camera
+}
+
+// Measure where the visible content (deck + pads, NOT the larger halo) actually lands
+// and slide the section sideways so its centre sits on the camera axis — guaranteeing
+// equal blank space left/right and top/bottom regardless of any in-deck offset or the
+// perspective skew from the pads' depth. Called after the transform is applied.
+function _recenterMpcFocus(w) {
+  if (!MPC.section || !MPC.deck) return;
+  MPC.section.updateMatrixWorld(true);
+  _focusBox.makeEmpty();
+  _focusBox.expandByObject(MPC.deck);
+  for (let i = 0; i < MPC.pads.length; i++) _focusBox.expandByObject(MPC.pads[i]);
+  _focusBox.getCenter(_focusCtr);
+
+  camera.getWorldDirection(_camDir);
+  _toCtr.copy(_focusCtr).sub(camera.position);
+  const along = _toCtr.dot(_camDir);                 // depth of the content centre on the view axis
+  _lateral.copy(_toCtr).addScaledVector(_camDir, -along); // its off-axis (sideways) component
+  MPC.section.position.addScaledVector(_lateral, -(w === undefined ? 1 : w)); // slide onto the axis
+}
+
+function _startMpcFocus() {
+  if (mpcFocusPhase || mpcPhase !== 'open' || !MPC.section) return;
+  _syncCamera();
+  scene.attach(MPC.section);                 // reparent to world, preserving the deck's pose
+  _secFromPos.copy(MPC.section.position);
+  _secFromQuat.copy(MPC.section.quaternion);
+  _secFromScale = MPC.section.scale.x;
+  if (MPC.halo) MPC.halo.visible = false;
+  _refreshMpcFocusTarget();
+  mpcFocusPhase = 'focusing';
+  mpcFocusT = 0;
+  _hideFocusEscapeHint();
+}
+
+function _startMpcUnfocus() {
+  if (mpcFocusPhase !== 'focused' || !MPC.section) return;
+  _secFromPos.copy(MPC.section.position);
+  _secFromQuat.copy(MPC.section.quaternion);
+  _secFromScale = MPC.section.scale.x;
+  mpcFocusPhase = 'unfocusing';
+  mpcFocusT = 0;
+  _hideFocusEscapeHint();
+}
+
+// Re-home the section under the cached model with its original local transform.
+function _homeMpcSection() {
+  if (!MPC.section) return;
+  MPC._model.add(MPC.section);
+  MPC.section.position.set(SEC_CX, topY, SEC_CZ);
+  MPC.section.quaternion.identity();
+  MPC.section.scale.setScalar(1);
+}
+
+function _finishMpcUnfocus() {
+  _homeMpcSection();
+  mpcFocusPhase = null;
+  mpcFocusT = 0;
+}
+
+// Hard reset (on dismiss/close) — snap the section home immediately, no tween.
+function _resetMpcFocus() {
+  _homeMpcSection();
+  if (MPC.halo) MPC.halo.visible = false;
+  mpcFocusPhase = null;
+  mpcFocusT = 0;
+  _hideFocusEscapeHint();
+}
+
+function _tickMpcFocus(dt) {
+  if (!mpcFocusPhase || !MPC.section) return;
+  const sec = MPC.section;
+  if (mpcFocusPhase === 'focusing') {
+    _refreshMpcFocusTarget();
+    mpcFocusT = Math.min(1, mpcFocusT + dt / MPC_FOCUS_DUR);
+    const s = mpcFocusT * mpcFocusT * (3 - 2 * mpcFocusT);
+    sec.position.lerpVectors(_secFromPos, _secToPos, s);
+    _secLerpQuat.slerpQuaternions(_secFromQuat, _secToQuat, s);
+    sec.quaternion.copy(_secLerpQuat);
+    sec.scale.setScalar(_secFromScale + (_secToScale - _secFromScale) * s);
+    _recenterMpcFocus(s);   // ease the screen-centring in with the lift (no pop at settle)
+    if (mpcFocusT >= 1) { mpcFocusPhase = 'focused'; _showFocusEscapeHint(); }
+  } else if (mpcFocusPhase === 'focused') {
+    _refreshMpcFocusTarget();
+    sec.position.copy(_secToPos);
+    sec.quaternion.copy(_secToQuat);
+    sec.scale.setScalar(_secToScale);
+    _recenterMpcFocus(1);   // hold it screen-centred
+  } else if (mpcFocusPhase === 'unfocusing') {
+    mpcFocusT = Math.min(1, mpcFocusT + dt / MPC_FOCUS_DUR);
+    const s = mpcFocusT * mpcFocusT * (3 - 2 * mpcFocusT);
+    const homeScale = _sectionHomeWorld(_secToPos, _secToQuat);   // live (the unit bobs)
+    sec.position.lerpVectors(_secFromPos, _secToPos, s);
+    _secLerpQuat.slerpQuaternions(_secFromQuat, _secToQuat, s);
+    sec.quaternion.copy(_secLerpQuat);
+    sec.scale.setScalar(_secFromScale + (homeScale - _secFromScale) * s);
+    if (mpcFocusT >= 1) _finishMpcUnfocus();
+  }
 }
 
 registerExhibit({
@@ -382,14 +602,24 @@ registerExhibit({
   // this knocks the orb back to ~60% and softly lowers the room — a middle ground that's
   // light-based (so it holds as the player moves). Released on 'closing' so light ramps back.
   dimsRoom: () => (mpcPhase === 'opening' || mpcPhase === 'open') ? 0.38 : 0,
+  // Freeze the player while the pad section is held in focus (matches the crate).
+  locksMovement: () => mpcFocusPhase === 'focusing' || mpcFocusPhase === 'focused',
   update(ctx) {
-    // Escape (desktop) or tap (mobile) dismisses, same as walking out of radius.
-    if (ctx.escEdge && ctx.iCD <= 0 && mpcPhase && mpcPhase !== 'closing') {
-      _dismissMpc(); hidePrompt(); ctx.setCD(0.3);
-    } else if (ctx.eEdge && isMobile && ctx.iCD <= 0 && mpcPhase === 'open') {
-      _dismissMpc(); hidePrompt(); ctx.setCD(0.3);
+    // ── Input ──
+    if (ctx.iCD <= 0) {
+      if (ctx.escEdge) {
+        // Escape steps out of focus first, then dismisses the unit.
+        if (mpcFocusPhase === 'focused') { _startMpcUnfocus(); hidePrompt(); ctx.setCD(0.35); }
+        else if (mpcPhase && mpcPhase !== 'closing') { _dismissMpc(); hidePrompt(); ctx.setCD(0.3); }
+      } else if (ctx.eEdge) {
+        // Space/E (desktop) or tap (mobile): bring the pad section into focus; tap again
+        // (mobile) to step back out. To leave entirely on mobile, walk away or Escape.
+        if (mpcPhase === 'open' && !mpcFocusPhase) { _startMpcFocus(); hidePrompt(); ctx.setCD(0.35); }
+        else if (isMobile && mpcFocusPhase === 'focused') { _startMpcUnfocus(); hidePrompt(); ctx.setCD(0.35); }
+      }
     }
-    // Open / close scale animation
+
+    // ── Open / close scale animation ──
     if (mpcPhase === 'opening') {
       mpcT = Math.min(1, mpcT + ctx.dt / OPEN_DUR);
       const s = mpcT * mpcT * (3 - 2 * mpcT);
@@ -402,6 +632,41 @@ registerExhibit({
       if (mpcT <= 0) _closeMpc();
     }
     if (mpcGroup) mpcGroup.position.y = MPC_Y + Math.sin(ctx.t * 1.4) * 0.03;
+
+    // ── Select halo — frames the whole pad section while open & idle, signalling it's
+    // ready to be brought into focus. Breathing pulse on opacity + a subtle scale.
+    // Hidden during focus (and any non-open phase). ──
+    if (MPC.halo) {
+      if (mpcPhase === 'open' && !mpcFocusPhase) {
+        MPC.halo.visible = true;
+        MPC.haloMat.opacity = 0.5 + (Math.sin(ctx.t * 3.0) * 0.5 + 0.5) * 0.5;  // 0.5 → 1.0
+        const sc = 1 + Math.sin(ctx.t * 3.0) * 0.05;
+        MPC.halo.scale.set(sc, sc, 1);
+      } else {
+        MPC.halo.visible = false;
+      }
+    }
+
+    // Pad-section focus tween (lift-out / settle / return).
+    _tickMpcFocus(ctx.dt);
+
+    // Self-light the section in focus — ramp emissive with the lift so the grid reads
+    // (it sits away from the orb, so unlit it would be black-on-black at the edges).
+    if (MPC.padMat) {
+      const lit = mpcFocusPhase === 'focused'    ? 1
+                : mpcFocusPhase === 'focusing'    ? mpcFocusT
+                : mpcFocusPhase === 'unfocusing'  ? 1 - mpcFocusT
+                : 0;
+      MPC.padMat.emissiveIntensity = lit;
+      MPC.padDeckMat.emissiveIntensity = lit;
+    }
+
+    // Hide the HUD while the section is held in focus (matches the crate).
+    const _focusUIHidden = mpcFocusPhase === 'focusing' || mpcFocusPhase === 'focused';
+    _elMmWrap.classList.toggle('focus-hidden', _focusUIHidden);
+    _elUi?.classList.toggle('focus-hidden', _focusUIHidden);
+    _jZone.classList.toggle('focus-hidden', _focusUIHidden);
+
     // Faint LCD glow — one scalar nudge (no array writes, no DOM queries)
     if (MPC.screenMat) MPC.screenMat.emissiveIntensity = 0.5 + Math.sin(ctx.t * 6) * 0.06;
   },

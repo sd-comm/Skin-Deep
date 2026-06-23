@@ -47,10 +47,13 @@ const CRT = {
   woodTex: null,    // walnut wood-grain for the side end panels
   ventTex: null,    // bottom vent slats
   screenMat: null,  // kept so update() can flicker the screen emissive
+  spot: null,       // dedicated key light from above the TV (scene-level, not parented)
+  spotTarget: null,
 };
 
-const CRT_SIZE = 2.6;  // overall TV width; every part is a fraction of this
-const CRT_Y    = 1.2;  // group-center height — screen sits near eye level
+const CRT_SIZE = 3.6;  // overall TV width; every part is a fraction of this
+const CRT_Y    = 1.45; // group-center height — screen sits near eye level
+const SPOT_INT = 32;   // peak intensity of the overhead key light on the TV (decay 1, ~5u away)
 const _crtFwd  = new THREE.Vector3();
 
 let crtPhase = null;   // 'opening' | 'open' | 'closing' | null
@@ -187,16 +190,34 @@ function makeCrtVentTex() {
   return new THREE.CanvasTexture(c);
 }
 
-// SKIN DEEP wordmark on a dark plaque (front frame, below the screen).
+// SKIN DEEP wordmark — a raised brushed-silver plate with engraved dark letters, matching
+// the reference's "SONY" badge that sits on the screen's bottom bezel rail. The metal plate
+// catches a top sheen; the lettering is engraved (dark fill + a 1px light highlight below).
 function makeCrtBadgeTex() {
-  const c = document.createElement('canvas'); c.width = 256; c.height = 96;
+  const W = 256, Hh = 80;
+  const c = document.createElement('canvas'); c.width = W; c.height = Hh;
   const x = c.getContext('2d');
-  _rr(x, 6, 22, 244, 52, 8); x.fillStyle = '#0a0b0d'; x.fill();
-  _rr(x, 8, 24, 240, 48, 7); x.strokeStyle = 'rgba(150,154,162,0.5)'; x.lineWidth = 2; x.stroke();
-  x.fillStyle = '#d7dade';
-  x.font = '800 30px Arial, sans-serif';
-  x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillText('SKIN DEEP', 128, 50);
+  x.clearRect(0, 0, W, Hh);
+  // Plate body — vertical brushed-aluminium gradient inside a rounded rect.
+  _rr(x, 10, 14, W - 20, Hh - 28, 7);
+  const g = x.createLinearGradient(0, 14, 0, Hh - 14);
+  g.addColorStop(0, '#d6d9dd'); g.addColorStop(0.5, '#aeb2b8'); g.addColorStop(1, '#888c92');
+  x.fillStyle = g; x.fill();
+  // fine horizontal brushing
+  x.save(); _rr(x, 10, 14, W - 20, Hh - 28, 7); x.clip();
+  for (let i = 0; i < 140; i++) {
+    const yy = 14 + Math.random() * (Hh - 28);
+    x.strokeStyle = 'rgba(255,255,255,0.07)'; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(14, yy); x.lineTo(W - 14, yy); x.stroke();
+  }
+  x.restore();
+  // raised-edge bevel: light top/left, dark bottom/right
+  _rr(x, 10, 14, W - 20, Hh - 28, 7); x.strokeStyle = 'rgba(255,255,255,0.55)'; x.lineWidth = 1.5; x.stroke();
+  _rr(x, 11, 16, W - 22, Hh - 30, 6); x.strokeStyle = 'rgba(0,0,0,0.35)'; x.lineWidth = 1; x.stroke();
+  // engraved lettering
+  x.font = '800 26px Arial, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillStyle = 'rgba(255,255,255,0.45)'; x.fillText('SKIN DEEP', 128, Hh / 2 + 1.5);  // highlight under
+  x.fillStyle = '#232529';                x.fillText('SKIN DEEP', 128, Hh / 2);          // engraved ink
   return new THREE.CanvasTexture(c);
 }
 
@@ -219,14 +240,17 @@ const PANEL = {
   ovals:     [{ u: 0.115, v: 0.880 }, { u: 0.205, v: 0.880 }, { u: 0.295, v: 0.880 }],
   jacks:     [{ u: 0.80, v: 0.925 }, { u: 0.895, v: 0.925 }],
 };
-const PANEL_ASPECT = 0.435;   // width / height of the panel plane (must match the geometry)
+const PANEL_ASPECT = 0.38;   // width / height of the panel plane (must match the geometry).
+                              // Narrowed so the control column claims less of the face and the
+                              // screen dominates. All knob/label coords are normalized (u,v) +
+                              // canvas-px radii, so circles stay circular at any aspect.
 
 function makeCrtPanelTex() {
   const CW = 480, CH = Math.round(CW / PANEL_ASPECT);   // ≈ 1103
   const c = document.createElement('canvas'); c.width = CW; c.height = CH;
   const x = c.getContext('2d');
   const U = u => u * CW, V = v => v * CH;
-  const ink = '#cdd0d6', faint = '#9a9ea6', red = '#d23b2f';
+  const ink = '#f2f4f8', faint = '#d2d6dd', red = '#ff4636';   // bright marks for contrast in the recess
 
   // Charcoal base + subtle vertical brushed sheen + a recessed inner border.
   x.fillStyle = '#191a1e'; x.fillRect(0, 0, CW, CH);
@@ -239,7 +263,7 @@ function makeCrtPanelTex() {
   const bakeDialRing = (cx, cy, rOuter, labels) => {
     x.beginPath(); x.arc(cx, cy, rOuter, 0, Math.PI * 2);
     x.fillStyle = '#0d0e11'; x.fill();
-    x.lineWidth = 2; x.strokeStyle = 'rgba(150,154,162,0.4)'; x.stroke();
+    x.lineWidth = 2; x.strokeStyle = 'rgba(205,210,220,0.4)'; x.stroke();
     x.fillStyle = ink; x.font = '700 15px Arial'; x.textAlign = 'center'; x.textBaseline = 'middle';
     const n = labels.length;
     for (let i = 0; i < n; i++) {
@@ -247,7 +271,7 @@ function makeCrtPanelTex() {
       const lr = rOuter - 13;
       x.fillText(labels[i], cx + Math.cos(a) * lr, cy + Math.sin(a) * lr);
       // tick mark just outside the numbers
-      x.strokeStyle = 'rgba(150,154,162,0.5)'; x.lineWidth = 1.5;
+      x.strokeStyle = 'rgba(205,210,220,0.5)'; x.lineWidth = 1.5;
       x.beginPath();
       x.moveTo(cx + Math.cos(a) * (rOuter - 3), cy + Math.sin(a) * (rOuter - 3));
       x.lineTo(cx + Math.cos(a) * (rOuter - 1), cy + Math.sin(a) * (rOuter - 1));
@@ -258,7 +282,7 @@ function makeCrtPanelTex() {
   const bakeSocket = (cx, cy, r) => {
     x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2);
     x.fillStyle = '#0e0f12'; x.fill();
-    x.lineWidth = 2; x.strokeStyle = 'rgba(150,154,162,0.32)'; x.stroke();
+    x.lineWidth = 2; x.strokeStyle = 'rgba(205,210,220,0.32)'; x.stroke();
   };
   const label = (s, u, v, col, px) => {
     x.fillStyle = col || faint; x.font = '700 ' + (px || 12) + 'px Arial';
@@ -275,8 +299,8 @@ function makeCrtPanelTex() {
     ['1', '2', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13']);
   // COLOR badge (top-right)
   _rr(x, U(0.66), V(0.03), U(0.30), V(0.05), 4); x.fillStyle = '#0c0d10'; x.fill();
-  x.strokeStyle = '#c0c4cc'; x.lineWidth = 1.5; x.stroke();
-  label('COLOR', 0.81, 0.055, '#d7dade', 18);
+  x.strokeStyle = '#e0e3ea'; x.lineWidth = 1.5; x.stroke();
+  label('COLOR', 0.81, 0.055, '#f4f6fa', 18);
   // small knob labels
   bakeSocket(U(PANEL.fineKnob.u), V(PANEL.fineKnob.v), CW * 0.082);
   bakeSocket(U(PANEL.contKnob.u), V(PANEL.contKnob.v), CW * 0.082);
@@ -300,8 +324,8 @@ function makeCrtPanelTex() {
   // ── SOLID STATE plate + separator ──
   _engrave(x, U(0.05), V(0.485), U(0.95), V(0.485));
   _rr(x, U(0.07), V(0.500), U(0.34), V(0.045), 4); x.fillStyle = '#0c0d10'; x.fill();
-  x.strokeStyle = 'rgba(150,154,162,0.4)'; x.lineWidth = 1.5; x.stroke();
-  label('SOLID STATE', 0.24, 0.523, '#c4c8cf', 15);
+  x.strokeStyle = 'rgba(205,210,220,0.4)'; x.lineWidth = 1.5; x.stroke();
+  label('SOLID STATE', 0.24, 0.523, '#eaedf2', 15);
 
   // ── Woven speaker grille (the big block, lower-left) ──
   const gx0 = U(0.06), gy0 = V(0.565), gw = U(0.56), gh = V(0.23);
@@ -314,7 +338,7 @@ function makeCrtPanelTex() {
     }
   }
   x.restore();
-  x.strokeStyle = 'rgba(150,154,162,0.25)'; x.lineWidth = 1.5; _rr(x, gx0, gy0, gw, gh, 6); x.stroke();
+  x.strokeStyle = 'rgba(205,210,220,0.25)'; x.lineWidth = 1.5; _rr(x, gx0, gy0, gw, gh, 6); x.stroke();
 
   // ── Right strip: COLOR TONE + COLOR knobs ──
   label('COLOR TONE', 0.85, 0.540, faint, 10);
@@ -332,13 +356,13 @@ function makeCrtPanelTex() {
   // ── Bottom row: SKIN DEEP badge + earphone jacks ──
   _engrave(x, U(0.05), V(0.835), U(0.62), V(0.835));
   _rr(x, U(0.42), V(0.905), U(0.30), V(0.05), 4); x.fillStyle = '#0c0d10'; x.fill();
-  x.strokeStyle = 'rgba(150,154,162,0.4)'; x.lineWidth = 1.5; x.stroke();
-  label('SKIN DEEP', 0.57, 0.930, '#c4c8cf', 14);
+  x.strokeStyle = 'rgba(205,210,220,0.4)'; x.lineWidth = 1.5; x.stroke();
+  label('SKIN DEEP', 0.57, 0.930, '#eaedf2', 14);
   label('EAR PHONE', 0.845, 0.880, faint, 10);
   PANEL.jacks.forEach(j => {
     x.beginPath(); x.arc(U(j.u), V(j.v), CW * 0.028, 0, Math.PI * 2);
     x.fillStyle = '#050608'; x.fill();
-    x.lineWidth = 2; x.strokeStyle = 'rgba(150,154,162,0.45)'; x.stroke();
+    x.lineWidth = 2; x.strokeStyle = 'rgba(205,210,220,0.45)'; x.stroke();
   });
 
   const t = new THREE.CanvasTexture(c);
@@ -360,6 +384,16 @@ function _roundedRectShape(w, h, r) {
 // in the chrome bezel frame).
 function _roundRectInto(p, w, h, r) {
   const x = -w / 2, y = -h / 2;
+  p.moveTo(x + r, y);
+  p.lineTo(x + w - r, y);  p.quadraticCurveTo(x + w, y, x + w, y + r);
+  p.lineTo(x + w, y + h - r);  p.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  p.lineTo(x + r, y + h);  p.quadraticCurveTo(x, y + h, x, y + h - r);
+  p.lineTo(x, y + r);  p.quadraticCurveTo(x, y, x + r, y);
+}
+// Same, but centred at an arbitrary (cx, cy) — used to punch the screen + control-panel
+// windows through the silver front frame so each module recesses into the cabinet.
+function _roundRectAtInto(p, cx, cy, w, h, r) {
+  const x = cx - w / 2, y = cy - h / 2;
   p.moveTo(x + r, y);
   p.lineTo(x + w - r, y);  p.quadraticCurveTo(x + w, y, x + w, y + r);
   p.lineTo(x + w, y + h - r);  p.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
@@ -388,24 +422,30 @@ function _makeTaperedBox(w, h, d, backScale) {
 function _buildCrtTv() {
   const g = new THREE.Group();
   const S  = CRT_SIZE;
-  const W  = S, H = S * 0.72, D = S * 0.74;
+  const W  = S, H = S * 0.61, D = S * 0.74;  // landscape face (~1.5:1) like the reference, not square
   const fz = D / 2;                          // front face plane (+Z faces the player)
-  const woodW = W * 0.075;                   // each wood end-panel thickness
+  const woodW = W * 0.06;                    // thin wood end-panels — let the silver front dominate
   const WF = W - 2 * woodW;                  // front-frame span between the wood sides
 
   // ── Materials ──
-  const woodMat   = new THREE.MeshStandardMaterial({ color: 0xb07a45, map: CRT.woodTex, bumpMap: CRT.woodTex, bumpScale: 0.05, roughness: 0.66, metalness: 0.04 });
-  // Brushed-silver front frame + trim — bright satin aluminium (specular, never washes).
-  const frameMat  = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.34, metalness: 0.92, roughnessMap: CRT.brushedTex, bumpMap: CRT.brushedTex, bumpScale: 0.005 });
-  const chromeMat = new THREE.MeshStandardMaterial({ color: 0xaab0b8, roughness: 0.2,  metalness: 0.96 });
+  const woodMat   = new THREE.MeshStandardMaterial({ color: 0xba864e, map: CRT.woodTex, bumpMap: CRT.woodTex, bumpScale: 0.05, roughness: 0.62, metalness: 0.04 });
+  // Front frame + trim — satin anodised aluminium. LOW metalness on purpose: a high-metal
+  // surface reflects the orb light directly and blows out to cream/gold near the player.
+  // Low metalness + mid-high roughness reads as a stable matte silver-grey that holds tone.
+  // A faint brushed bump remains for grain; no roughnessMap (its variation added sparkle).
+  const frameMat  = new THREE.MeshStandardMaterial({ color: 0xacb0b6, roughness: 0.66, metalness: 0.16, bumpMap: CRT.brushedTex, bumpScale: 0.004 });
+  const chromeMat = new THREE.MeshStandardMaterial({ color: 0xbcc0c6, roughness: 0.5,  metalness: 0.22 });
   // Dark glossy chassis / recesses — hold their tone under the orb (low roughness).
   const chassisMat = new THREE.MeshStandardMaterial({ color: 0x17181c, roughness: 0.5, metalness: 0.2 });
   const recessMat  = new THREE.MeshStandardMaterial({ color: 0x070809, roughness: 0.4, metalness: 0.1 });
-  const panelMat   = new THREE.MeshStandardMaterial({ map: CRT.panelTex, roughness: 0.62, metalness: 0.12, bumpMap: CRT.panelTex, bumpScale: 0.006 });
+  // The faceplate self-illuminates from its OWN texture (emissiveMap = the baked panel):
+  // the bright printed marks (labels, number rings, badges) glow so they stay readable in
+  // the recess shadow, while the charcoal base barely lifts — i.e. high text contrast.
+  const panelMat   = new THREE.MeshStandardMaterial({ map: CRT.panelTex, roughness: 0.62, metalness: 0.12, bumpMap: CRT.panelTex, bumpScale: 0.006, emissive: 0xffffff, emissiveMap: CRT.panelTex, emissiveIntensity: 0.5 });
   const dialCapMat = new THREE.MeshStandardMaterial({ color: 0x121316, roughness: 0.26, metalness: 0.45 });
-  const knobMat    = new THREE.MeshStandardMaterial({ color: 0x86898f, roughness: 0.34, metalness: 0.9, roughnessMap: CRT.brushedTex });
+  const knobMat    = new THREE.MeshStandardMaterial({ color: 0x8d9097, roughness: 0.58, metalness: 0.18 });
   const pointerMat = new THREE.MeshBasicMaterial({ color: 0xe4e7ea });
-  const jackMat    = new THREE.MeshStandardMaterial({ color: 0x4a4d54, roughness: 0.3, metalness: 0.85 });
+  const jackMat    = new THREE.MeshStandardMaterial({ color: 0x4a4d54, roughness: 0.5, metalness: 0.25 });
   // Emissive coloured pops (can't wash out — hue is added on top of the lighting).
   const btnOrangeMat = new THREE.MeshStandardMaterial({ color: 0x2a1402, roughness: 0.34, emissive: 0xff8a24, emissiveIntensity: 0.9 });
   const btnGreenMat  = new THREE.MeshStandardMaterial({ color: 0x05210f, roughness: 0.34, emissive: 0x33d66a, emissiveIntensity: 0.85 });
@@ -438,35 +478,48 @@ function _buildCrtTv() {
     g.add(side);
   });
 
-  // ── Brushed-silver front frame — a beveled rounded plate between the wood sides. ──
-  const frameDepth = 0.09;
-  const frameGeo = new THREE.ExtrudeGeometry(_roundedRectShape(WF, H * 0.98, 0.10), {
-    depth: frameDepth, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.035, bevelSegments: 2, curveSegments: 5,
+  // ══ Section placement (computed up-front so the silver frame can be CUT with the two
+  //    openings — punching real windows is what makes each module a recess rather than a
+  //    decal on a flat slab). ══
+  const sx = -WF * 0.13, sy = H * 0.03;                  // screen centre — shifted to claim more width
+  const openW = WF * 0.65, openH = openW * 0.82;         // BIG screen window — taller to fill the lower band
+  const bezT = WF * 0.028, bezR = WF * 0.055;            // thin bezel so the glass reads larger
+  const panelX = WF * 0.378, panelY = H * 0.01;          // control-panel shrunk + pushed to the right edge
+  const panelH = H * 0.84, panelW = panelH * PANEL_ASPECT;
+  const panelR = panelW * 0.06;
+
+  // ── Brushed-silver front frame — a true picture-frame: a beveled rounded plate with the
+  //    screen window and the control-panel window PUNCHED THROUGH it. The silver sits proud
+  //    and the bevel rolls into each opening, so both modules recess into the cabinet. ──
+  const frameDepth = 0.12;
+  const frameShape = _roundedRectShape(WF, H * 0.98, 0.10);
+  const scrHole = new THREE.Path(); _roundRectAtInto(scrHole, sx, sy, openW, openH, bezR);
+  const pnlHole = new THREE.Path(); _roundRectAtInto(pnlHole, panelX, panelY, panelW, panelH, panelR);
+  frameShape.holes.push(scrHole, pnlHole);
+  const frameGeo = new THREE.ExtrudeGeometry(frameShape, {
+    depth: frameDepth, bevelEnabled: true, bevelThickness: 0.035, bevelSize: 0.03, bevelSegments: 2, curveSegments: 5,
   });
   frameGeo.translate(0, 0, fz - frameDepth);
   const frame = new THREE.Mesh(frameGeo, frameMat);
   g.add(frame);
 
-  // ══ SCREEN (left of the frame) ══
-  const sx = -WF * 0.17, sy = H * 0.045;
-  const openW = WF * 0.50, openH = openW * 0.80;
-  const bezT = WF * 0.045, bezR = WF * 0.07;
-
-  // Dark recess box behind the glass so the cavity never shows the silver through.
-  const recess = new THREE.Mesh(new THREE.BoxGeometry(openW, openH, 0.12), recessMat);
-  recess.position.set(sx, sy, fz - 0.05);
+  // ══ SCREEN — recessed into its window ══
+  // Dark cavity (covers the window from behind) + a proud chrome bezel rim + the glass set
+  // back inside the mouth, so the screen clearly sits in a well below the silver face.
+  const recess = new THREE.Mesh(new THREE.BoxGeometry(openW + bezT, openH + bezT, 0.14), recessMat);
+  recess.position.set(sx, sy, fz - 0.15);
   g.add(recess);
 
-  // Chrome rounded bezel frame around the opening (extruded ring with a rounded hole).
+  // Chrome rounded bezel rim seated at the front of the window.
   const bezOuter = _roundedRectShape(openW + 2 * bezT, openH + 2 * bezT, bezR + bezT);
   const bezHole = new THREE.Path(); _roundRectInto(bezHole, openW, openH, bezR);
   bezOuter.holes.push(bezHole);
-  const bezGeo = new THREE.ExtrudeGeometry(bezOuter, { depth: 0.07, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.02, bevelSegments: 2, curveSegments: 6 });
+  const bezGeo = new THREE.ExtrudeGeometry(bezOuter, { depth: 0.06, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.02, bevelSegments: 2, curveSegments: 6 });
   const bezel = new THREE.Mesh(bezGeo, chromeMat);
-  bezel.position.set(sx, sy, fz - 0.02);
+  bezel.position.set(sx, sy, fz - 0.03);
   g.add(bezel);
 
-  // Convex glass — a shallow spherical cap bulging toward the player.
+  // Convex glass — a shallow spherical cap, set back into the well (below the bezel rim).
   const capR = S * 1.6, capTheta = 0.22;
   const screenGeo = new THREE.SphereGeometry(capR, 40, 26, 0, Math.PI * 2, 0, capTheta);
   screenGeo.rotateX(Math.PI / 2);
@@ -474,17 +527,19 @@ function _buildCrtTv() {
   const rim = capR * Math.sin(capTheta);
   const screen = new THREE.Mesh(screenGeo, screenMat);
   screen.scale.set((openW * 0.94 / 2) / rim, (openH * 0.94 / 2) / rim, 1);
-  screen.position.set(sx, sy, fz + 0.02);
+  screen.position.set(sx, sy, fz - 0.03);
   g.add(screen);
 
   const glare = new THREE.Mesh(new THREE.PlaneGeometry(openW * 0.86, openH * 0.86), glareMat);
-  glare.position.set(sx, sy, fz + 0.07);
+  glare.position.set(sx, sy, fz + 0.0);
   glare.renderOrder = 3;
   g.add(glare);
 
-  // SKIN DEEP plaque on the frame, under the screen.
-  const badge = new THREE.Mesh(new THREE.PlaneGeometry(WF * 0.22, WF * 0.082), badgeMat);
-  badge.position.set(sx, sy - openH / 2 - bezT - H * 0.07, fz + 0.005);
+  // SKIN DEEP plate — seated on the bottom rail of the chrome screen bezel, centred under
+  // the screen, exactly where the reference's "SONY" plate sits.
+  const badge = new THREE.Mesh(new THREE.PlaneGeometry(WF * 0.20, WF * 0.0625), badgeMat);
+  badge.position.set(sx, sy - openH / 2 - bezT * 0.9, fz + 0.062);
+  badge.renderOrder = 2;
   g.add(badge);
 
   // Power LED on the frame, lower-left of the screen.
@@ -493,17 +548,17 @@ function _buildCrtTv() {
   led.position.set(sx - openW / 2 - bezT - 0.02, sy - openH / 2, fz + 0.02);
   g.add(led);
 
-  // ══ CONTROL PANEL (right of the frame) — baked faceplate + tactile overlays ══
-  const panelX = WF * 0.345, panelY = H * 0.01;
-  const panelH = H * 0.86, panelW = panelH * PANEL_ASPECT;
-  // (u,v) on the faceplate → local model coords (u:0=left, v:0=top).
+  // ══ CONTROL PANEL — recessed into its window, baked faceplate + tactile overlays ══
+  // (u,v) on the faceplate → local model coords (u:0=left, v:0=top). pZ is set BACK behind
+  // the silver face so the dark faceplate sits in a well; the dials/knobs rise from it up
+  // toward the rim (just like the reference, where the controls are sunk into the cabinet).
   const px = u => panelX + (u - 0.5) * panelW;
   const py = v => panelY + (0.5 - v) * panelH;
-  const pZ = fz + 0.005;
+  const pZ = fz - 0.055;
 
-  // Recessed charcoal panel box + a chrome surround lip, then the faceplate plane.
-  const panelBox = new THREE.Mesh(new THREE.BoxGeometry(panelW + 0.04, panelH + 0.04, 0.06), recessMat);
-  panelBox.position.set(panelX, panelY, fz - 0.02);
+  // Charcoal cavity filling the window from behind + the recessed faceplate plane.
+  const panelBox = new THREE.Mesh(new THREE.BoxGeometry(panelW + bezT, panelH + bezT, 0.13), recessMat);
+  panelBox.position.set(panelX, panelY, fz - 0.125);
   g.add(panelBox);
   const faceplate = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), panelMat);
   faceplate.position.set(panelX, panelY, pZ);
@@ -570,9 +625,9 @@ function _buildCrtTv() {
     g.add(jk);
   });
 
-  // ── Bottom vent slot across the lower front frame ──
-  const vents = new THREE.Mesh(new THREE.PlaneGeometry(WF * 0.7, H * 0.08), ventMat);
-  vents.position.set(0, -H * 0.43, fz + 0.005);
+  // ── Bottom vent slot across the lower silver rail (kept below both punched windows) ──
+  const vents = new THREE.Mesh(new THREE.PlaneGeometry(WF * 0.62, H * 0.035), ventMat);
+  vents.position.set(-WF * 0.06, -H * 0.465, fz + 0.005);
   g.add(vents);
 
   // ══ TOP: carry handle + telescoping antenna ══
@@ -655,6 +710,23 @@ function _openCrt(px, pz, openYaw) {
   crtGroup.add(CRT._model);
   crtGroup.userData.model = CRT._model;
   crtGroup.scale.setScalar(0.04);
+
+  // ── Dedicated key light ──
+  // While this exhibit is open the orb is knocked right back (see dimsRoom), so the set
+  // would otherwise sit in the dark. A soft spot mounted above and slightly in FRONT of
+  // the TV (player side) rakes down the face — it lights the cabinet evenly without the
+  // hot orb specular that was blowing the front out. Scene-level so it doesn't scale with
+  // the open animation; intensity ramps with crtT in update().
+  const tx = crtGroup.position.x, tz = crtGroup.position.z;
+  const spot = new THREE.SpotLight(0xfff1d6, 0, 18, 0.7, 0.55, 1.0);
+  spot.position.set(tx - _crtFwd.x * 1.6, CRT_Y + 4.8, tz - _crtFwd.z * 1.6);
+  const tgt = new THREE.Object3D();
+  tgt.position.set(tx, CRT_Y - 0.2, tz);
+  scene.add(tgt);
+  spot.target = tgt;
+  scene.add(spot);
+  CRT.spot = spot;
+  CRT.spotTarget = tgt;
 }
 
 function _closeCrt() {
@@ -663,6 +735,11 @@ function _closeCrt() {
     _disposeCrateObject(crtGroup);
     scene.remove(crtGroup);
     crtGroup = null;
+  }
+  if (CRT.spot) {
+    scene.remove(CRT.spot); scene.remove(CRT.spotTarget);
+    CRT.spot.dispose?.();
+    CRT.spot = null; CRT.spotTarget = null;
   }
   crtPhase = null;
   crtT     = 0;
@@ -684,11 +761,11 @@ registerExhibit({
   open: (px, pz, yaw) => _openCrt(px, pz, yaw),
   isActive: () => !!crtPhase,
   dismiss: () => _dismissCrt(),
-  // PARTIAL dim (≈0.5). Unlike the old cream-cabinet set (which needed a full black-out so
-  // it didn't blow to white), this rebuild is brushed metal + dark glossy + walnut — none
-  // of which wash out. A full dim would dull the bright-silver Trinitron look, so the room
-  // only drops to ~50%: the green screen glow reads while the aluminium stays bright.
-  dimsRoom: () => (crtPhase === 'opening' || crtPhase === 'open') ? 0.5 : 0,
+  // STRONG dim (≈0.95). The set has its own overhead key light (see _openCrt), so the orb
+  // is knocked right back: this kills the hot orb specular that was blowing the front out
+  // and turns the scene into a spotlit TV in a dark room. The dedicated spot does the
+  // lighting; the orb is left at only a faint floor (~18%).
+  dimsRoom: () => (crtPhase === 'opening' || crtPhase === 'open') ? 0.95 : 0,
   update(ctx) {
     // Escape (desktop) or tap (mobile) dismisses, same as walking out of radius.
     if (ctx.escEdge && ctx.iCD <= 0 && crtPhase && crtPhase !== 'closing') {
@@ -709,6 +786,8 @@ registerExhibit({
       if (crtT <= 0) _closeCrt();
     }
     if (crtGroup) crtGroup.position.y = CRT_Y + Math.sin(ctx.t * 1.4) * 0.03;
+    // Overhead key light ramps in/out with the open animation (crtT smoothstep).
+    if (CRT.spot) CRT.spot.intensity = (crtT * crtT * (3 - 2 * crtT)) * SPOT_INT;
     // Faint static glow — one scalar nudge + a cheap texture crawl (no array writes)
     if (CRT.screenMat) CRT.screenMat.emissiveIntensity = 0.72 + Math.sin(ctx.t * 40) * 0.14 + Math.sin(ctx.t * 7.3) * 0.07;
     if (CRT.staticTex) CRT.staticTex.offset.y = (ctx.t * 0.6) % 1;
