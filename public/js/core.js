@@ -193,6 +193,66 @@ function _cardTextHotspot(ctx, text, cx, baselineY, W, H) {
   return { u0: x0 / W, u1: x1 / W, v0: 1 - yBot / H, v1: 1 - yTop / H };
 }
 
+// Draw the Instagram camera glyph (rounded square + lens circle + top-right dot) centred at
+// (cx,cy) within a square of side `s`. Pure canvas — no external SVG to load (the buildless
+// site can't fetch one). Used beside an info-card @handle so it reads unmistakably as Instagram.
+function _drawInstagramGlyph(ctx, cx, cy, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = Math.max(1, s * 0.11);
+  ctx.lineJoin = 'round';
+  const r = s * 0.28, x = cx - s / 2, y = cy - s / 2;
+  ctx.beginPath();                                   // rounded square body
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + s, y,     x + s, y + s, r);
+  ctx.arcTo(x + s, y + s, x,     y + s, r);
+  ctx.arcTo(x,     y + s, x,     y,     r);
+  ctx.arcTo(x,     y,     x + s, y,     r);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.beginPath();                                   // lens
+  ctx.arc(cx, cy, s * 0.26, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();                                   // top-right dot
+  ctx.arc(x + s * 0.74, y + s * 0.26, s * 0.065, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Draw an Instagram link row on an info card: the IG glyph, then the @handle (link-bright +
+// underlined), centred as one block at baseline `y`, with a small "open profile" prompt beneath.
+// Returns the hotspot { u0,v0,u1,v1,url } spanning the glyph + handle so a click/tap anywhere on
+// the row opens the profile. `ctx` font is set internally; W,H are the card's logical size.
+function _instagramLink(ctx, { handle, url, cx, y, W, H, hint }) {
+  const GS = 13, GAP = 7;                            // glyph side + glyph→text gap
+  ctx.font = '400 12px Georgia, serif';
+  const tw = ctx.measureText(handle).width;
+  const blockW = GS + GAP + tw;
+  const left = cx - blockW / 2;
+  _drawInstagramGlyph(ctx, left + GS / 2, y - 4, GS, 'rgba(255,214,130,0.82)');
+  const textLeft = left + GS + GAP;
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(255,214,130,0.72)';         // brighter than body text so it reads as a link
+  ctx.fillText(handle, textLeft, y);
+  ctx.strokeStyle = 'rgba(255,200,100,0.4)';        // underline cues it's tappable (no hover on mobile)
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(textLeft, y + 4); ctx.lineTo(textLeft + tw, y + 4); ctx.stroke();
+  ctx.textAlign = 'center';
+  const prompt = hint || (window.matchMedia('(pointer: coarse)').matches
+    ? 'Tap to open profile' : 'Click to open profile');
+  ctx.fillStyle = 'rgba(255,200,100,0.4)';
+  ctx.font = '400 9px Georgia, serif';
+  ctx.fillText(prompt, cx, y + 16);
+  ctx.textAlign = prevAlign;
+  const PADX = 9, PADT = 15, PADB = 7;
+  return {
+    u0: (left - PADX) / W, u1: (left + blockW + PADX) / W,
+    v0: 1 - (y + PADB) / H, v1: 1 - (y - PADT) / H, url,
+  };
+}
+
 function _fitExhibitSize(aspect) {
   let w = EXHIBIT_W, h = w / aspect;
   if (h > EXHIBIT_H) { h = EXHIBIT_H; w = h * aspect; }
@@ -1985,6 +2045,8 @@ const core = {
   // texture / scheduling helpers
   initTex: _initTex,
   cardTextHotspot: _cardTextHotspot,
+  instagramLink: _instagramLink,
+  drawInstagramGlyph: _drawInstagramGlyph,
   scheduleIdle: _scheduleIdle,
   showToast,
   // floater + exhibition lifecycle services

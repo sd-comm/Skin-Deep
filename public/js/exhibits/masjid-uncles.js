@@ -88,40 +88,51 @@ function makeMasjidUnclesCardTex() {
   ctx.stroke();
 
   // Handles — two live links to the Instagram profiles (each clickable while the card is
-  // focused). Drawn as separate segments (left-aligned around a centred block) so each gets
-  // its own hotspot + underline; textAlign is restored to centre afterwards.
+  // focused). Each is an IG glyph + @handle segment, drawn left-aligned around a centred block
+  // so each gets its own hotspot + underline; a single prompt sits beneath both. textAlign is
+  // restored to centre afterwards.
   const H1 = '@peim786',      U1 = 'https://instagram.com/peim786';
   const H2 = '@studioteski',  U2 = 'https://instagram.com/studioteski';
   const SEP = '  ·  ';
+  const GS = 13, GAP = 6;                  // glyph side + glyph→text gap
   ctx.font = '400 12px Georgia, serif';
   const w1 = ctx.measureText(H1).width;
   const wS = ctx.measureText(SEP).width;
   const w2 = ctx.measureText(H2).width;
-  const yH = 322;
+  const seg1 = GS + GAP + w1, seg2 = GS + GAP + w2;
+  const yH = 318;
   ctx.textAlign = 'left';
-  let x = cx - (w1 + wS + w2) / 2;        // left edge of the centred block
+  let x = cx - (seg1 + wS + seg2) / 2;     // left edge of the centred block
 
-  const drawLink = (text, leftX, w) => {  // link-bright fill + underline; returns its centre X
+  const drawLink = (text, leftX, w, url) => {  // glyph + link-bright text + underline; returns hotspot
+    core.drawInstagramGlyph(ctx, leftX + GS / 2, yH - 4, GS, 'rgba(255,214,130,0.82)');
+    const tx = leftX + GS + GAP;
     ctx.fillStyle = 'rgba(255,214,130,0.72)';
-    ctx.fillText(text, leftX, yH);
+    ctx.fillText(text, tx, yH);
     ctx.strokeStyle = 'rgba(255,200,100,0.4)';
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(leftX, yH + 4); ctx.lineTo(leftX + w, yH + 4); ctx.stroke();
-    return leftX + w / 2;
+    ctx.beginPath(); ctx.moveTo(tx, yH + 4); ctx.lineTo(tx + w, yH + 4); ctx.stroke();
+    const PADX = 9, PADT = 15, PADB = 7;
+    return {
+      u0: (leftX - PADX) / W, u1: (tx + w + PADX) / W,
+      v0: 1 - (yH + PADB) / H, v1: 1 - (yH - PADT) / H, url,
+    };
   };
 
-  const cx1 = drawLink(H1, x, w1); x += w1;
+  const hs1 = drawLink(H1, x, w1, U1); x += seg1;
   ctx.fillStyle = 'rgba(255,200,100,0.38)';
   ctx.fillText(SEP, x, yH); x += wS;
-  const cx2 = drawLink(H2, x, w2);
+  const hs2 = drawLink(H2, x, w2, U2);
+
   ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,200,100,0.4)';
+  ctx.font = '400 9px Georgia, serif';
+  ctx.fillText(window.matchMedia('(pointer: coarse)').matches
+    ? 'Tap a handle to open the profile' : 'Click a handle to open the profile', cx, yH + 16);
 
   const tex = new THREE.CanvasTexture(cv);
   tex.userData = tex.userData || {}; // fresh textures can have undefined userData in this Three build
-  tex.userData.hotspots = [
-    { ...core.cardTextHotspot(ctx, H1, cx1, yH, W, H), url: U1 },
-    { ...core.cardTextHotspot(ctx, H2, cx2, yH, W, H), url: U2 },
-  ];
+  tex.userData.hotspots = [hs1, hs2];
   return tex;
 }
 
