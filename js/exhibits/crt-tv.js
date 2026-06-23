@@ -53,7 +53,11 @@ const CRT = {
 
 const CRT_SIZE = 3.6;  // overall TV width; every part is a fraction of this
 const CRT_Y    = 1.45; // group-center height — screen sits near eye level
-const SPOT_INT = 32;   // peak intensity of the overhead key light on the TV (decay 1, ~5u away)
+// Peak intensity of the overhead key light on the TV (decay 1, ~5u away). Desktop runs
+// ACESFilmicToneMapping, which rolls the hot warm core off smoothly; mobile runs NoToneMapping,
+// so the same 32 clamps linearly into a harsh white wash. Mobile is tamed directly to keep the
+// set soft and contained (no exposure lever exists under NoToneMapping). Tune mobile in ~10–18.
+const SPOT_INT = isMobile ? 14 : 32;
 const _crtFwd  = new THREE.Vector3();
 
 let crtPhase = null;   // 'opening' | 'open' | 'closing' | null

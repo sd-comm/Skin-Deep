@@ -20,9 +20,9 @@
 import { core } from '../core.js';
 
 const {
-  THREE, scene, camera, isMobile, floaters, MAX_ANISO,
+  THREE, scene, camera, renderer, isMobile, floaters, MAX_ANISO,
   CRATE_DIST, OPEN_DUR, CLOSE_DUR,
-  registerExhibit,
+  registerExhibit, keys,
   initTex: _initTex,
   setFloaterVisible: _setFloaterVisible,
   restoreFloater: _restoreExhibitFloater,
@@ -48,7 +48,16 @@ const MPC = {
   padMat: null,     // shared pad material — emissive ramps up in focus so pads read
   padDeckMat: null, // shared deck material — emissive ramps up in focus
   deck: null,       // deck mesh ref — used to measure the focused content for recentring
+  pads: null,       // the 16 pad meshes (array index = row*4 + col)
+  padHi: null,      // glowing selection frame laid over the cursored pad (desktop)
+  padHiMat: null,   // kept so update() can pulse the highlight opacity
+  padEmbeds: null,  // per-pad embed URL (one media clip per pad)
 };
+
+// Media each pad triggers. One entry per pad (index = row*4 + col, top-left → bottom-right).
+// For now every pad loads the same clip; swap individual entries in as content is added.
+const MPC_YT = 'https://www.youtube.com/embed/0qmO8XouJ2U?rel=0&autoplay=1';
+const MPC_PAD_EMBEDS = new Array(16).fill(MPC_YT);
 
 const MPC_SIZE = 5.6;            // overall body width; every part is a fraction of this
 const MPC_Y    = 2.1;            // group-center height — scaled with MPC_SIZE (~0.38×) so the tilted unit keeps its floor clearance
@@ -83,6 +92,23 @@ const _focusCtr  = new THREE.Vector3();
 const _camDir    = new THREE.Vector3();
 const _toCtr     = new THREE.Vector3();
 const _lateral   = new THREE.Vector3();
+
+// ── Pad selection / trigger state (live only once the section is focused) ──
+let mpcPadSel = 12;            // cursored pad (desktop), array idx; 12 = bottom-left ("PAD 1")
+let mpcEmbedOn = false;        // is the triggered-clip overlay showing
+let _mpcPressIdx = -1;         // pad currently playing its press-dip animation
+let _mpcPressT   = 0;
+let _mpcNavL = false, _mpcNavR = false, _mpcNavU = false, _mpcNavD = false; // arrow-key edges
+const MPC_PRESS_DUR = 0.22;
+
+// Embed overlay DOM (the YouTube iframe that takes over when a pad is triggered).
+const _elMpcYt       = document.getElementById('mpc-yt-embed');
+const _elMpcYtIframe = document.getElementById('mpc-yt-iframe');
+const _elMpcYtClose  = document.getElementById('mpc-yt-close');
+
+// Mobile tap → pad raycast (desktop uses the arrow-key cursor instead).
+const _padRay = new THREE.Raycaster();
+const _padNdc = new THREE.Vector2();
 
 // ── Body proportions (a flat slab) ──
 const W = MPC_SIZE;          // width  (left↔right)
@@ -386,6 +412,25 @@ function _buildMpc() {
       MPC.pads.push(pad);
     }
   }
+  MPC.padEmbeds = MPC_PAD_EMBEDS;
+
+  // Selection cursor — a small glowing frame laid over the active pad while focused on
+  // desktop (mobile triggers by direct tap, so it has no persistent cursor). Reuses the
+  // amber halo texture; repositioned over the cursored pad and pulsed in update().
+  const padHi = new THREE.Mesh(
+    new THREE.PlaneGeometry(W * 0.135, D * 0.135),
+    new THREE.MeshBasicMaterial({
+      map: MPC.haloTex, transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }),
+  );
+  padHi.rotation.x = -Math.PI / 2;
+  padHi.position.y = 0.092;
+  padHi.renderOrder = 7;
+  padHi.visible = false;
+  section.add(padHi);
+  MPC.padHi = padHi;
+  MPC.padHiMat = padHi.material;
 
   // ── Select halo: a glowing frame lying flat over the whole pad section, signalling
   // it's ready to be brought into focus. Sized a touch larger than the deck; pulsed in
@@ -447,6 +492,8 @@ function _openMpc(px, pz, openYaw) {
 }
 
 function _closeMpc() {
+  _hideMpcEmbed();
+  _resetMpcPads();
   // The section may still be reparented to the scene (mid-focus dismiss) — re-home it so
   // it travels with the cached model rather than being orphaned / disposed separately.
   if (mpcFocusPhase || (MPC.section && MPC.section.parent !== MPC._model)) _resetMpcFocus();
@@ -519,6 +566,7 @@ function _startMpcFocus() {
   _secFromQuat.copy(MPC.section.quaternion);
   _secFromScale = MPC.section.scale.x;
   if (MPC.halo) MPC.halo.visible = false;
+  _positionMpcPadHi();   // seat the cursor over the default pad before it appears
   _refreshMpcFocusTarget();
   mpcFocusPhase = 'focusing';
   mpcFocusT = 0;
@@ -527,6 +575,8 @@ function _startMpcFocus() {
 
 function _startMpcUnfocus() {
   if (mpcFocusPhase !== 'focused' || !MPC.section) return;
+  _hideMpcEmbed();
+  _resetMpcPads();
   _secFromPos.copy(MPC.section.position);
   _secFromQuat.copy(MPC.section.quaternion);
   _secFromScale = MPC.section.scale.x;
@@ -552,8 +602,11 @@ function _finishMpcUnfocus() {
 
 // Hard reset (on dismiss/close) — snap the section home immediately, no tween.
 function _resetMpcFocus() {
+  _hideMpcEmbed();
+  _resetMpcPads();
   _homeMpcSection();
   if (MPC.halo) MPC.halo.visible = false;
+  if (MPC.padHi) MPC.padHi.visible = false;
   mpcFocusPhase = null;
   mpcFocusT = 0;
   _hideFocusEscapeHint();
@@ -590,6 +643,93 @@ function _tickMpcFocus(dt) {
   }
 }
 
+// ── PAD SELECTION + TRIGGER ──────────────────────────────────────────────────
+// Lay the selection cursor over the currently-selected pad.
+function _positionMpcPadHi() {
+  if (!MPC.padHi || !MPC.pads) return;
+  const p = MPC.pads[mpcPadSel];
+  if (p) MPC.padHi.position.set(p.position.x, 0.092, p.position.z);
+}
+
+// Move the desktop cursor across the 4×4 grid (rows top→bottom, cols left→right) with wrap.
+function _moveMpcSel(dRow, dCol) {
+  if (!MPC.pads) return;
+  let row = Math.floor(mpcPadSel / 4) + dRow;
+  let col = (mpcPadSel % 4) + dCol;
+  row = (row + 4) % 4;
+  col = (col + 4) % 4;
+  mpcPadSel = row * 4 + col;
+  _positionMpcPadHi();
+}
+
+// Restore every pad to rest (cancels any in-flight press dip).
+function _resetMpcPads() {
+  if (MPC.pads) for (let i = 0; i < MPC.pads.length; i++) MPC.pads[i].scale.set(1, 1, 1);
+  _mpcPressIdx = -1;
+  _mpcPressT = 0;
+}
+
+// Bring the triggered pad's clip up in an iframe overlay.
+function _showMpcEmbed(idx) {
+  const url = MPC.padEmbeds && MPC.padEmbeds[idx];
+  if (!_elMpcYt || !url) return;
+  if (_elMpcYtIframe && _elMpcYtIframe.src !== url) _elMpcYtIframe.src = url;
+  _elMpcYt.classList.add('visible');
+  mpcEmbedOn = true;
+  _hideFocusEscapeHint();   // the overlay carries its own close affordance
+}
+
+// Tear the overlay down and stop playback (clearing src halts the video).
+function _hideMpcEmbed() {
+  if (!mpcEmbedOn && (!_elMpcYt || !_elMpcYt.classList.contains('visible'))) return;
+  if (_elMpcYt) _elMpcYt.classList.remove('visible');
+  if (_elMpcYtIframe) _elMpcYtIframe.src = '';
+  mpcEmbedOn = false;
+  if (mpcFocusPhase === 'focused') _showFocusEscapeHint();
+}
+
+// Fire a pad: select it, kick its press dip, and load its clip.
+function _triggerMpcPad(idx) {
+  if (idx == null || idx < 0 || !MPC.pads || idx >= MPC.pads.length) return;
+  mpcPadSel = idx;
+  _positionMpcPadHi();
+  _mpcPressIdx = idx;
+  _mpcPressT = 0;
+  _showMpcEmbed(idx);
+}
+
+// Mobile: tap a pad to trigger it; tap blank space (or while the clip is up) to step back.
+if (isMobile && renderer && renderer.domElement) {
+  const _padTapStarts = {};
+  renderer.domElement.addEventListener('touchstart', e => {
+    for (const t of e.changedTouches) _padTapStarts[t.identifier] = { x: t.clientX, y: t.clientY, t: Date.now() };
+  });
+  renderer.domElement.addEventListener('touchend', e => {
+    for (const t of e.changedTouches) {
+      const s = _padTapStarts[t.identifier];
+      delete _padTapStarts[t.identifier];
+      if (!s || mpcFocusPhase !== 'focused' || !MPC.pads) continue;
+      const dx = t.clientX - s.x, dy = t.clientY - s.y;
+      if (Date.now() - s.t >= 280 || dx * dx + dy * dy >= 225) continue;   // not a tap (matches core)
+      if (mpcEmbedOn) { _hideMpcEmbed(); continue; }                       // clip up → dismiss it
+      _padNdc.set((t.clientX / window.innerWidth) * 2 - 1, -(t.clientY / window.innerHeight) * 2 + 1);
+      _padRay.setFromCamera(_padNdc, camera);
+      const hit = _padRay.intersectObjects(MPC.pads, false)[0];
+      if (hit) _triggerMpcPad(MPC.pads.indexOf(hit.object));               // pad → play
+      else _startMpcUnfocus();                                            // blank → step out
+    }
+  });
+  renderer.domElement.addEventListener('touchcancel', e => {
+    for (const t of e.changedTouches) delete _padTapStarts[t.identifier];
+  });
+}
+
+if (_elMpcYtClose) {
+  const _close = e => { e.preventDefault(); e.stopPropagation(); _hideMpcEmbed(); };
+  _elMpcYtClose.addEventListener('click', _close);
+  _elMpcYtClose.addEventListener('touchstart', _close, { passive: false });
+}
+
 registerExhibit({
   id: 'mpc-2000',
   floater: MPC.floaterIdx,
@@ -608,15 +748,35 @@ registerExhibit({
     // ── Input ──
     if (ctx.iCD <= 0) {
       if (ctx.escEdge) {
-        // Escape steps out of focus first, then dismisses the unit.
-        if (mpcFocusPhase === 'focused') { _startMpcUnfocus(); hidePrompt(); ctx.setCD(0.35); }
+        // Escape backs out one layer at a time: clip overlay → focus → the whole unit.
+        if (mpcEmbedOn) { _hideMpcEmbed(); hidePrompt(); ctx.setCD(0.3); }
+        else if (mpcFocusPhase === 'focused') { _startMpcUnfocus(); hidePrompt(); ctx.setCD(0.35); }
         else if (mpcPhase && mpcPhase !== 'closing') { _dismissMpc(); hidePrompt(); ctx.setCD(0.3); }
       } else if (ctx.eEdge) {
-        // Space/E (desktop) or tap (mobile): bring the pad section into focus; tap again
-        // (mobile) to step back out. To leave entirely on mobile, walk away or Escape.
+        // Space/E (desktop) or tap (mobile): bring the pad section into focus.
         if (mpcPhase === 'open' && !mpcFocusPhase) { _startMpcFocus(); hidePrompt(); ctx.setCD(0.35); }
-        else if (isMobile && mpcFocusPhase === 'focused') { _startMpcUnfocus(); hidePrompt(); ctx.setCD(0.35); }
+        // Desktop, focused: Space/E triggers the cursored pad (or closes the clip if up).
+        // Mobile interaction while focused is owned by the pad-tap raycast listener above.
+        else if (!isMobile && mpcFocusPhase === 'focused') {
+          if (mpcEmbedOn) { _hideMpcEmbed(); ctx.setCD(0.3); }
+          else { _triggerMpcPad(mpcPadSel); ctx.setCD(0.3); }
+        }
       }
+    }
+
+    // Desktop arrow keys cycle the pad cursor across the 4×4 grid while focused (movement
+    // is locked in focus, so the arrows are free). Edges tracked every frame for clean steps.
+    if (!isMobile && mpcFocusPhase === 'focused' && !mpcEmbedOn) {
+      const l = !!keys['ArrowLeft'], r = !!keys['ArrowRight'], u = !!keys['ArrowUp'], d = !!keys['ArrowDown'];
+      if (ctx.iCD <= 0) {
+        if (l && !_mpcNavL) { _moveMpcSel(0, -1); ctx.setCD(0.15); }
+        else if (r && !_mpcNavR) { _moveMpcSel(0, 1); ctx.setCD(0.15); }
+        else if (u && !_mpcNavU) { _moveMpcSel(-1, 0); ctx.setCD(0.15); }
+        else if (d && !_mpcNavD) { _moveMpcSel(1, 0); ctx.setCD(0.15); }
+      }
+      _mpcNavL = l; _mpcNavR = r; _mpcNavU = u; _mpcNavD = d;
+    } else {
+      _mpcNavL = _mpcNavR = _mpcNavU = _mpcNavD = false;
     }
 
     // ── Open / close scale animation ──
@@ -659,6 +819,21 @@ registerExhibit({
                 : 0;
       MPC.padMat.emissiveIntensity = lit;
       MPC.padDeckMat.emissiveIntensity = lit;
+    }
+
+    // Pad press dip — the triggered pad punches down briefly for tactile feedback.
+    if (_mpcPressIdx >= 0 && MPC.pads && MPC.pads[_mpcPressIdx]) {
+      _mpcPressT = Math.min(1, _mpcPressT + ctx.dt / MPC_PRESS_DUR);
+      const dip = Math.sin(_mpcPressT * Math.PI);   // 0 → 1 → 0
+      MPC.pads[_mpcPressIdx].scale.y = 1 - dip * 0.55;
+      if (_mpcPressT >= 1) { MPC.pads[_mpcPressIdx].scale.y = 1; _mpcPressIdx = -1; }
+    }
+
+    // Selection cursor — desktop only, while focused and the clip isn't up. Breathing pulse.
+    if (MPC.padHi) {
+      const showHi = !isMobile && mpcFocusPhase === 'focused' && !mpcEmbedOn;
+      MPC.padHi.visible = showHi;
+      if (showHi) MPC.padHiMat.opacity = 0.55 + (Math.sin(ctx.t * 4.0) * 0.5 + 0.5) * 0.45;
     }
 
     // Hide the HUD while the section is held in focus (matches the crate).

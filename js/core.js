@@ -1817,7 +1817,8 @@ function animate() {
     _elPrompt.classList.remove('visible');
   }
 
-  // Exhibit aim reticle — only visible when the aim is locked onto a panel
+  // Exhibit focus prompt — projected above the aimed panel. No aim reticle: the focus
+  // prompt alone does the job (the carousel never shows _elAimReticle).
   if (exhibitPhase === 'open' && !exhibitFocusPhase) {
     if (exhibitCanFocus) {
       const tp = exhibitPlanes[exhibitAimedIdx].mesh;
@@ -1825,10 +1826,6 @@ function animate() {
       _panelWp.project(camera);
       const rx = (_panelWp.x * 0.5 + 0.5) * window.innerWidth;
       const ry = (-_panelWp.y * 0.5 + 0.5) * window.innerHeight;
-      _elAimReticle.style.left = rx + 'px';
-      _elAimReticle.style.top  = ry + 'px';
-      _elAimReticle.classList.add('visible');
-      _elAimReticle.classList.add('locked');
       _elPrompt.style.left = rx + 'px';
       _elPrompt.style.top  = (ry - 36) + 'px';
       _elIprLabel.textContent = isMobile ? 'tap to focus' : 'focus';
@@ -1840,13 +1837,8 @@ function animate() {
       }
       _elPrompt.classList.add('visible');
     } else {
-      _elAimReticle.classList.remove('visible');
-      _elAimReticle.classList.remove('locked');
       _elPrompt.classList.remove('visible');
     }
-  } else if (!activeExhibit) {
-    _elAimReticle.classList.remove('visible');
-    _elAimReticle.classList.remove('locked');
   }
 
   // ── EXHIBIT FOCUSED SLIDESHOW (arrows / WASD only while an image is in focus) ──
