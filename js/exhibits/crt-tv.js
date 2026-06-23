@@ -41,6 +41,8 @@ const CRT = {
   _built: false,
   staticTex: null,  // canvas textures, built once
   glareTex: null,
+  logoTex: null,    // SKIN DEEP wordmark for the bouncing-DVD-logo screensaver
+  logoMesh: null,   // the bouncing logo plane (kept so update() can drift it)
   panelTex: null,   // baked control-panel faceplate (dials' number rings, labels, grille, badges)
   badgeTex: null,   // SKIN DEEP wordmark plaque (front frame)
   brushedTex: null, // brushed-metal roughness/bump for the silver frame + trim
@@ -59,6 +61,14 @@ const _crtFwd  = new THREE.Vector3();
 let crtPhase = null;   // 'opening' | 'open' | 'closing' | null
 let crtT     = 0;
 let crtGroup = null;
+
+// ── Bouncing screensaver state (classic DVD-logo edge reflection) ──
+// All in screen-local units, as an offset from the screen centre (_logoBaseX/Y).
+let logoX = 0, logoY = 0;          // current offset from screen centre
+let logoVX = 0, logoVY = 0;        // velocity (units/sec)
+let logoHalfX = 0, logoHalfY = 0;  // travel bounds (set at build from screen size)
+let logoHue = 0.58;                // cycles on each wall hit
+let _logoBaseX = 0, _logoBaseY = 0;
 
 // ── small canvas helpers (shared with the MPC faceplate idiom) ──
 function _rr(x, cx, cy, w, h, r) {
@@ -558,6 +568,32 @@ function _buildCrtTv() {
   glare.renderOrder = 3;
   g.add(glare);
 
+  // ══ Bouncing "SKIN DEEP" screensaver ══
+  // A glowing wordmark that drifts across the snow and reflects off the screen edges (the old
+  // DVD-logo bounce), flipping colour on every hit. ADDITIVE blending drops the logo art's
+  // black background for free — only the white lettering adds light over the static — so the
+  // source PNG needs no alpha. The material colour multiplies the white, so cycling it on each
+  // bounce tints the glow. Driven per-frame in update(); it sits just in front of the glass.
+  const logoW = openW * 0.40, logoH = logoW * (630 / 1200);   // source art is 1200×630
+  const logoMat = new THREE.MeshBasicMaterial({
+    map: CRT.logoTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85,
+  });
+  logoMat.color.setHSL(logoHue, 0.85, 0.6);
+  const logo = new THREE.Mesh(new THREE.PlaneGeometry(logoW, logoH), logoMat);
+  logo.position.set(sx, sy, fz + 0.002);
+  logo.renderOrder = 2;
+  g.add(logo);
+  CRT.logoMesh = logo;
+  // Travel bounds keep the whole wordmark inside the glass; seed a diagonal drift.
+  _logoBaseX = sx; _logoBaseY = sy;
+  logoHalfX = Math.max(0, scrW / 2 - logoW / 2);
+  logoHalfY = Math.max(0, scrH / 2 - logoH / 2);
+  logoX = (Math.random() * 2 - 1) * logoHalfX * 0.5;
+  logoY = (Math.random() * 2 - 1) * logoHalfY * 0.5;
+  const _logoSpeed = 0.6;   // units/sec
+  logoVX = (Math.random() < 0.5 ? -1 : 1) * _logoSpeed * 0.72;
+  logoVY = (Math.random() < 0.5 ? -1 : 1) * _logoSpeed * 0.72;
+
   // SKIN DEEP plate — seated on the bottom rail of the chrome screen bezel, centred under
   // the screen, exactly where the reference's "SONY" plate sits.
   const badge = new THREE.Mesh(new THREE.PlaneGeometry(WF * 0.20, WF * 0.0625), badgeMat);
@@ -703,6 +739,7 @@ function _buildCrtAssets() {
   if (CRT._built) return;
   CRT.staticTex = makeCrtStaticTex(); _initTex(CRT.staticTex);
   CRT.glareTex  = makeCrtGlareTex();  _initTex(CRT.glareTex);
+  CRT.logoTex   = new THREE.TextureLoader().load('images/skindeep/image.png', _initTex);
   CRT.brushedTex = makeCrtBrushedTex(); _initTex(CRT.brushedTex);
   CRT.woodTex   = makeCrtWoodTex();   _initTex(CRT.woodTex);
   CRT.ventTex   = makeCrtVentTex();   _initTex(CRT.ventTex);
@@ -865,5 +902,19 @@ registerExhibit({
     // Jump the noise tile to a fresh random region each frame so the snow re-samples (flicker)
     // instead of scrolling a fixed pattern downward — a clean vertical scroll read as Matrix rain.
     if (CRT.staticTex) { CRT.staticTex.offset.x = Math.random(); CRT.staticTex.offset.y = Math.random(); }
+    // Bounce the SKIN DEEP screensaver: constant drift, reflect off the screen edges, recolour
+    // on each hit (the DVD-logo idle animation, baked over the static).
+    if (CRT.logoMesh && crtPhase !== 'closing') {
+      logoX += logoVX * ctx.dt;
+      logoY += logoVY * ctx.dt;
+      let hit = false;
+      if (logoX >  logoHalfX) { logoX =  logoHalfX; logoVX = -Math.abs(logoVX); hit = true; }
+      else if (logoX < -logoHalfX) { logoX = -logoHalfX; logoVX = Math.abs(logoVX); hit = true; }
+      if (logoY >  logoHalfY) { logoY =  logoHalfY; logoVY = -Math.abs(logoVY); hit = true; }
+      else if (logoY < -logoHalfY) { logoY = -logoHalfY; logoVY = Math.abs(logoVY); hit = true; }
+      if (hit) { logoHue = (logoHue + 0.137) % 1; CRT.logoMesh.material.color.setHSL(logoHue, 0.85, 0.6); }
+      CRT.logoMesh.position.x = _logoBaseX + logoX;
+      CRT.logoMesh.position.y = _logoBaseY + logoY;
+    }
   },
 });
