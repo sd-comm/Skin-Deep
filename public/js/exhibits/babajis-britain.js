@@ -10,7 +10,7 @@ const { THREE } = core;
 
 function makeBabajisBritainCardTex() {
   const W = 512, H = 384;
-  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 4; // 1024 / 2048 px — crisp at focus fill
+  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 3; // 1024 / 1536 px — crisp at focus fill
   const cv = document.createElement('canvas');
   cv.width = W * SS; cv.height = H * SS;
   const ctx = cv.getContext('2d');
@@ -74,7 +74,7 @@ function makeBabajisBritainCardTex() {
   ctx.fillStyle = 'rgba(255,210,135,0.68)';
   ctx.font = '400 14px Georgia, serif';
   ctx.fillText('Six decades of a Pakistani migrant', cx, 190);
-  ctx.fillText('grandfather woven into British life —', cx, 210);
+  ctx.fillText('grandfather woven into British life:', cx, 210);
   ctx.fillText('sport, tea, flags & belonging.', cx, 230);
 
   ctx.fillStyle = 'rgba(255,200,100,0.52)';

@@ -10,7 +10,7 @@ const { THREE } = core;
 
 function makeMasjidUnclesCardTex() {
   const W = 512, H = 384;
-  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 4; // 1024 / 2048 px — crisp at focus fill
+  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 3; // 1024 / 1536 px — crisp at focus fill
   const cv = document.createElement('canvas');
   cv.width = W * SS; cv.height = H * SS;
   const ctx = cv.getContext('2d');
@@ -75,7 +75,7 @@ function makeMasjidUnclesCardTex() {
   ctx.fillStyle = 'rgba(255,210,135,0.68)';
   ctx.font = '400 14px Georgia, serif';
   ctx.fillText('Portraits of the elders who', cx, 196);
-  ctx.fillText('claim the front row — the', cx, 216);
+  ctx.fillText('claim the front row, the', cx, 216);
   ctx.fillText('spiritual heart of the masjid.', cx, 236);
 
   ctx.fillStyle = 'rgba(255,200,100,0.52)';

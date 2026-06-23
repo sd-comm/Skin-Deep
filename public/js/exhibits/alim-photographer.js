@@ -12,7 +12,7 @@ function makePhotographerCardTex() {
   const W = 512, H = 384;
   // Supersample so the text stays crisp when the card is brought to full-screen
   // focus. matchMedia is queried inline because this builds before `isMobile`.
-  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 4; // 1024 / 2048 px
+  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 3; // 1024 / 1536 px
   const cv = document.createElement('canvas');
   cv.width = W * SS; cv.height = H * SS;
   const ctx = cv.getContext('2d');

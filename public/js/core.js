@@ -216,6 +216,25 @@ function _initTex(t) {
 const _scheduleIdle = (fn) =>
   (window.requestIdleCallback ? requestIdleCallback(() => fn(), { timeout: 1000 }) : setTimeout(fn, 60));
 
+// Exhibit warm-up work — supersampled canvas builds + synchronous GPU uploads
+// (renderer.initTexture) — is queued and drained from animate() instead of firing whenever it
+// finishes decoding, so several completing at once can't stack into one long frame. Two tiers:
+//   • _warmQueue (photos/frames, ~light): drained ONE unit/frame always — small enough that one
+//     per frame stays on budget even while walking.
+//   • _warmHeavy (the 2048px info-card build, ~400ms): drained only while the player is
+//     STATIONARY, so it warms during the natural pause at the reveal / before opening rather
+//     than hitching mid-stride. If an exhibit is opened before its card warms, the panel builder
+//     (_ensureCardTex at open) still produces it on demand.
+// This changes only WHEN warm-up runs, never what gets warmed — the look is unaffected.
+const _warmQueue = [];
+const _warmHeavy = [];
+const _enqueueWarm      = (fn) => { _warmQueue.push(fn); };
+const _enqueueWarmHeavy = (fn) => { _warmHeavy.push(fn); };
+function _drainWarmQueue(moving) {
+  if (_warmQueue.length) { const fn = _warmQueue.shift(); try { fn(); } catch (e) {} return; }
+  if (!moving && _warmHeavy.length) { const fn = _warmHeavy.shift(); try { fn(); } catch (e) {} }
+}
+
 
 
 // Pre-build the framed-panel's GPU resources once the photo's aspect is known:
@@ -249,15 +268,15 @@ function _ensureCardTex(spec) {
 function _loadExhibitTexturesFor(ex) {
   if (!ex || ex._loaded) return;
   ex._loaded = true;
-  _scheduleIdle(() => _warmExhibitPanel(_ensureCardTex(ex)));
+  _enqueueWarmHeavy(() => _warmExhibitPanel(_ensureCardTex(ex)));
   ex.textures = ex.paths.map(path => {
     const tex = _configExhibitTex(_texLoader.load(path, img => {
       _setTexAspect(tex, img.width / img.height);
-      _scheduleIdle(() => _warmExhibitPanel(tex));
+      _enqueueWarm(() => _warmExhibitPanel(tex));
     }));
     if (tex.image && tex.image.width) {
       _setTexAspect(tex, tex.image.width / tex.image.height);
-      _scheduleIdle(() => _warmExhibitPanel(tex));
+      _enqueueWarm(() => _warmExhibitPanel(tex));
     }
     return tex;
   });
@@ -286,7 +305,14 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
 scene.fog = new THREE.FogExp2(0x000000, 0.032);
 
-const isMobile = window.matchMedia('(pointer: coarse)').matches;
+// Mobile = coarse primary pointer AND no fine pointer anywhere. The `any-pointer: fine`
+// guard keeps touchscreen desktops/laptops (mouse + touch) on the full-quality path.
+// `?mobile=1` / `?desktop=1` force a mode for local testing.
+const _qp = new URLSearchParams(location.search);
+const _qpMode = _qp.get('mobile') === '1' ? true : _qp.get('desktop') === '1' ? false : null;
+const isMobile = _qpMode != null ? _qpMode
+  : window.matchMedia('(pointer: coarse)').matches
+    && !window.matchMedia('(any-pointer: fine)').matches;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 // Adaptive resolution scaling — DPR is tuned at runtime to hold ~60fps (see animate()).
 // Start at full resolution; the governor backs off only if a device can't sustain 60fps.
@@ -313,7 +339,7 @@ const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHei
 // ── FLOOR ──
 const floorTex = new THREE.TextureLoader().load('tile.webp', t => _initTex(t));
 floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
-floorTex.repeat.set(4.5, 4.5);
+floorTex.repeat.set(6, 6);
 floorTex.generateMipmaps = true;
 floorTex.minFilter = THREE.LinearMipmapLinearFilter;
 floorTex.magFilter = THREE.LinearFilter;
@@ -328,7 +354,7 @@ scene.add(floor);
 // ── ROOM WALLS + CEILING (no bottom face) ──
 const wallTex = new THREE.TextureLoader().load('tile.webp', t => _initTex(t));
 wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
-wallTex.repeat.set(3.8, 3);
+wallTex.repeat.set(5, 3);
 wallTex.generateMipmaps = true;
 wallTex.minFilter = THREE.LinearMipmapLinearFilter;
 wallTex.magFilter = THREE.LinearFilter;
@@ -494,18 +520,22 @@ _fShadowCtx.fillStyle = _fShadowGrad;
 _fShadowCtx.fillRect(0,0,64,64);
 const _floaterShadowTex = new THREE.CanvasTexture(_fShadowCanvas);
 
-// Mobile floor light pool — soft radial disc under each beam (always visible at any distance).
-const _fSpotCanvas = document.createElement('canvas');
-_fSpotCanvas.width = _fSpotCanvas.height = 128;
-const _fSpotCtx = _fSpotCanvas.getContext('2d');
-const _fSpotGrad = _fSpotCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
-_fSpotGrad.addColorStop(0,   'rgba(255,255,255,0.42)');
-_fSpotGrad.addColorStop(0.45,'rgba(255,255,255,0.16)');
-_fSpotGrad.addColorStop(0.8, 'rgba(255,255,255,0.04)');
-_fSpotGrad.addColorStop(1,   'rgba(255,255,255,0)');
-_fSpotCtx.fillStyle = _fSpotGrad;
-_fSpotCtx.fillRect(0, 0, 128, 128);
-const _floaterSpotTex = new THREE.CanvasTexture(_fSpotCanvas);
+// Mobile-only: soft radial floor disc that stands in for a real beam SpotLight (mobile uses the
+// cheap fake-beam path; desktop uses real per-floater SpotLights and never references this).
+let _floaterSpotTex = null;
+if (isMobile) {
+  const _fSpotCanvas = document.createElement('canvas');
+  _fSpotCanvas.width = _fSpotCanvas.height = 128;
+  const _fSpotCtx = _fSpotCanvas.getContext('2d');
+  const _fSpotGrad = _fSpotCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  _fSpotGrad.addColorStop(0,   'rgba(255,255,255,0.42)');
+  _fSpotGrad.addColorStop(0.45,'rgba(255,255,255,0.16)');
+  _fSpotGrad.addColorStop(0.8, 'rgba(255,255,255,0.04)');
+  _fSpotGrad.addColorStop(1,   'rgba(255,255,255,0)');
+  _fSpotCtx.fillStyle = _fSpotGrad;
+  _fSpotCtx.fillRect(0, 0, 128, 128);
+  _floaterSpotTex = new THREE.CanvasTexture(_fSpotCanvas);
+}
 
 const floaterData = [
   { pos:[   0,1.1,    0], geo:new THREE.OctahedronGeometry(0.32),         color:0xffcc44, em:0xff8800, tex:'rune',   msg:"[ROOM OPENED]" },
@@ -521,20 +551,19 @@ const floaterData = [
 
 const floaters = [];
 floaterData.forEach(fd => {
-  // Main mesh — procedural emissive texture, built SYNCHRONOUSLY here (like the single-file
-  // build) so the material is final before the first frame. The previous version deferred the
-  // texture to requestIdleCallback and swapped it in with material.needsUpdate=true; each of
-  // those 9 swaps forced a material re-init on the next render, which showed up as recurring
-  // GPU stalls all through the first ~1.5s of the experience. One cheap upfront build (64px)
-  // costs a few ms during module-eval (before anything is on screen) and removes all of that.
-  // MeshStandardMaterial on both platforms (no MeshPhysicalMaterial clearcoat) keeps the
-  // one-time shader compile short.
-  const _matOpts = {
+  // Main mesh — procedural emissive texture, built SYNCHRONOUSLY here so the material is final
+  // before the first frame (deferring + needsUpdate swaps caused GPU stalls). DESKTOP uses
+  // MeshPhysicalMaterial with clearcoat for the rich single-file look; MOBILE uses the cheaper
+  // MeshStandardMaterial (no clearcoat) — clearcoat is the most expensive program to compile and
+  // barely visible on small emissive objects, so it stays off the mobile path.
+  const _matCommon = {
     color:fd.color, emissive:fd.em, emissiveIntensity:1.4,
     emissiveMap: makeFloaterTex(fd.tex),
     roughness:0.12, metalness:0.55
   };
-  const mesh = new THREE.Mesh(fd.geo, new THREE.MeshStandardMaterial(_matOpts));
+  const mesh = new THREE.Mesh(fd.geo, isMobile
+    ? new THREE.MeshStandardMaterial(_matCommon)
+    : new THREE.MeshPhysicalMaterial({ ..._matCommon, clearcoat:0.45, clearcoatRoughness:0.15 }));
   mesh.position.set(...fd.pos);
   scene.add(mesh);
 
@@ -574,26 +603,30 @@ floaterData.forEach(fd => {
   fShadow.renderOrder = 2;
   scene.add(fShadow);
 
-  // No dedicated per-floater point light on either platform. A small shared pool (created
-  // below) lights only the nearest few floaters — 9 dedicated lights bloated every lit
-  // shader (NUM_POINT_LIGHTS=12 with the 3 orb lights) and pushed renderer.compile() past
-  // a second on integrated GPUs. The pool gives near-identical results for ~3-4 lights.
-  floaters.push({ mesh, aura, ring, fShadow, light:null, color:fd.color, message:fd.msg, baseY:fd.pos[1], phase:Math.random()*Math.PI*2, rotSpeed:(Math.random()-0.5)*0.02+0.015, texType:fd.tex });
+  // DESKTOP: a dedicated per-floater point light (the rich single-file look). MOBILE: no
+  // dedicated light — a shared pool (created below) lights only the nearest few, so the lit
+  // shader stays cheap (fewer NUM_POINT_LIGHTS) for a far shorter renderer.compile().
+  let fl = null;
+  if (!isMobile) {
+    fl = new THREE.PointLight(fd.color, 0.9, 4.5, 2);
+    fl.position.copy(mesh.position);
+    scene.add(fl);
+  }
+
+  floaters.push({ mesh, aura, ring, fShadow, light:fl, color:fd.color, message:fd.msg, baseY:fd.pos[1], phase:Math.random()*Math.PI*2, rotSpeed:(Math.random()-0.5)*0.02+0.015, texType:fd.tex });
 });
 
-// Shared point-light pool (both platforms) — repositioned each frame to the nearest floaters,
-// so we pay for a fixed handful of dynamic lights instead of one per object regardless of how
-// many exist. Desktop gets 4 (a touch richer), mobile 3. Fewer lights = a far shorter
-// renderer.compile() and a much cheaper per-pixel BRDF on integrated GPUs.
-const FLOATER_LIGHT_POOL = isMobile ? 3 : 4;
+// MOBILE-only shared point-light pool — repositioned each frame to the nearest floaters, so we
+// pay for a fixed handful of dynamic lights instead of one per object. Desktop uses per-floater
+// lights above and leaves these arrays empty.
+const FLOATER_LIGHT_POOL = isMobile ? 3 : 0;
 const _poolLights = [];
 for (let i = 0; i < FLOATER_LIGHT_POOL; i++) {
   const pl = new THREE.PointLight(0xffffff, 0, 4.5, 2);
   scene.add(pl);
   _poolLights.push(pl);
 }
-// Reusable nearest-floater list for the light pool — refilled allocation-free each frame
-// inside the main floater loop (replaces a per-frame filter().slice().sort()).
+// Reusable nearest-floater list for the pool — refilled allocation-free each frame (mobile only).
 const _poolNearest = new Array(_poolLights.length).fill(null);
 
 // ── DARK ROOM INITIAL STATE ──
@@ -604,6 +637,10 @@ floaters.forEach(f => {
   f.ring.material.opacity = 0;
   if (f.light) f.light.intensity = 0;
 });
+
+// Volumetric-cone opacity for the soft additive glow that sells each beam shape (restored
+// to the original single-file value; the brightness now comes from real SpotLights again).
+const BEAM_CONE_OPACITY = 0.045;
 
 // ── BEAM OF LIGHT on first floater (octahedron) ──
 const beamLight = new THREE.SpotLight(0xfff5d0, 6.0, 18, Math.PI / 11, 0.25, 1.5);
@@ -618,7 +655,7 @@ scene.add(beamLight.target);
 const beamCone = new THREE.Mesh(
   new THREE.CylinderGeometry(0.05, 2.64, 9, 24, 1, true),
   new THREE.MeshBasicMaterial({
-    color: 0xfff8d0, transparent: true, opacity: 0.045,
+    color: 0xfff8d0, transparent: true, opacity: BEAM_CONE_OPACITY,
     side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false
   })
 );
@@ -626,12 +663,11 @@ beamCone.position.set(0, 4.5, 0);  // midpoint between source (y=9) and floor (y
 scene.add(beamCone);
 
 // ── BEAMS OF LIGHT on remaining floaters (fade in after room reveals) ──
-// Both platforms: volumetric cone + soft floor disc per floater (no per-floater SpotLight).
-// Only the central octahedron keeps a real SpotLight (beamLight above) — the other 8 spotlights
-// cost a full per-pixel shadow-less spot term in every lit shader (NUM_SPOT_LIGHTS=9) and roughly
-// doubled renderer.compile(); the additive cone + textured floor disc reproduce the look for free.
-const BEAM_CONE_OPACITY = 0.045;
-const BEAM_FLOOR_SPOT_OPACITY = isMobile ? 0.28 : 0.2;
+// DESKTOP: a real SpotLight per floater + volumetric cone (the rich single-file look, but the
+// heavy NUM_SPOT_LIGHTS=9 path). MOBILE: the cone + a textured floor disc and NO per-floater
+// SpotLight — only the central octahedron keeps a real spot — which roughly halves the shader
+// compile and the per-pixel lighting cost.
+const BEAM_FLOOR_SPOT_OPACITY = 0.28; // mobile floor-disc brightness
 floaters.forEach((f, i) => {
   if (i === 0) return; // first floater's beam already created above
   const px = floaterData[i].pos[0], pz = floaterData[i].pos[2];
@@ -647,18 +683,26 @@ floaters.forEach((f, i) => {
   cone.position.set(px, 6.5, pz);
   scene.add(cone);
   f.beamCone = cone;
-  const floorSpot = new THREE.Mesh(
-    new THREE.CircleGeometry(3.55, 24),
-    new THREE.MeshBasicMaterial({
-      map: _floaterSpotTex, color: col, transparent: true, opacity: 0,
-      depthWrite: false, depthTest: true, blending: THREE.NormalBlending
-    })
-  );
-  floorSpot.rotation.x = -Math.PI / 2;
-  floorSpot.position.set(px, 0.003, pz);
-  floorSpot.renderOrder = 1;
-  scene.add(floorSpot);
-  f.floorSpot = floorSpot;
+  if (isMobile) {
+    const floorSpot = new THREE.Mesh(
+      new THREE.CircleGeometry(3.55, 24),
+      new THREE.MeshBasicMaterial({
+        map: _floaterSpotTex, color: col, transparent: true, opacity: 0,
+        depthWrite: false, depthTest: true, blending: THREE.NormalBlending
+      })
+    );
+    floorSpot.rotation.x = -Math.PI / 2;
+    floorSpot.position.set(px, 0.003, pz);
+    floorSpot.renderOrder = 1;
+    scene.add(floorSpot);
+    f.floorSpot = floorSpot;
+  } else {
+    const bl = new THREE.SpotLight(col, 0, 18, Math.PI / 11, 0.25, 1.5);
+    bl.position.set(px, 13, pz);
+    bl.target.position.set(px, 0.5, pz);
+    scene.add(bl); scene.add(bl.target);
+    f.beam = bl;
+  }
 });
 
 let roomRevealed = false;
@@ -1028,6 +1072,115 @@ if (_PARAMS.get('goto') === 'crate') {
   yaw = Math.PI;
 } else {
   setTimeout(() => _tutShow(0), 900);
+}
+
+// ══════════════════════════════════════════
+//  WELCOME CARD (first room open)
+// ══════════════════════════════════════════
+const _welcomeOverlay = document.getElementById('welcome-overlay');
+const _welcomeBody     = document.getElementById('welcome-body');
+const _welcomeDismiss   = document.getElementById('welcome-dismiss');
+let _welcomeOpen = false;
+
+function _onWelcomeKey(e) {
+  if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') _dismissWelcome();
+}
+function _onWelcomeTap() { _dismissWelcome(); }
+
+function _dismissWelcome() {
+  if (!_welcomeOpen) return;
+  _welcomeOpen = false;
+  _welcomeOverlay.classList.add('hidden');
+  document.removeEventListener('keydown', _onWelcomeKey);
+  renderer.domElement.removeEventListener('pointerdown', _onWelcomeTap);
+  renderer.domElement.removeEventListener('touchend', _onWelcomeTap);
+  _disposeWelcomeFloaters();
+  // Absorb the dismissing Space/Esc/tap so the loop's interaction dispatch
+  // doesn't read the same press as a re-open of the central floater.
+  iCD = 0.5;
+}
+
+function showWelcomeCard() {
+  const _divider = `<canvas id="welcome-floaters-canvas"></canvas>`;
+  _welcomeBody.innerHTML = isMobile
+    ? `<p>You're inside the Skin Deep digital exhibition: a quiet, liminal gallery.</p>
+       <p>Drift up to any glowing object or spotlight and <b>tap</b> it to open its exhibit.</p>
+       ${_divider}
+       <p>Inside, <b>swipe</b> to move between pieces and play any media.</p>
+       <p><b>Tap away</b> or drift off to step back into the room.</p>`
+    : `<p>You're inside the Skin Deep digital exhibition: a quiet, liminal gallery.</p>
+       <p>Drift up to any glowing object or spotlight and press <b>Space</b> to open its exhibit.</p>
+       ${_divider}
+       <p>Inside, <b>read on screen instructions</b> for how to view pieces and play any media.</p>
+       <p>Press <b>Esc</b> or simply drift away to step back into the room.</p>`;
+  _welcomeDismiss.textContent = isMobile ? 'Tap to begin' : 'Press Space to begin';
+  _welcomeOverlay.classList.remove('hidden');
+  _welcomeOpen = true;
+  // Build the mini-floater divider once the card has laid out (so the canvas has a width).
+  requestAnimationFrame(() => { if (_welcomeOpen) _initWelcomeFloaters(); });
+  // Attach dismissal listeners after a beat so the same Space/tap that opened
+  // the card doesn't immediately close it.
+  setTimeout(() => {
+    if (!_welcomeOpen) return;
+    document.addEventListener('keydown', _onWelcomeKey);
+    renderer.domElement.addEventListener('pointerdown', _onWelcomeTap);
+    renderer.domElement.addEventListener('touchend', _onWelcomeTap);
+  }, 400);
+}
+
+// Mini live renders of the 9 floater geometries, laid out in a row as a divider strip
+// inside the welcome card. Reuses the shared floaterData geometries (NOT disposed here) and
+// builds its own disposable emissive materials/textures — mirrors _initTutPreview.
+let _welcomeFloaters = null;
+function _initWelcomeFloaters() {
+  if (_welcomeFloaters) return;
+  const canvas = document.getElementById('welcome-floaters-canvas');
+  if (!canvas) return;
+  const w = canvas.clientWidth || 280, h = 46;
+  const pr = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  pr.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  pr.setSize(w, h, false); // CSS controls display size; only the drawing buffer is set
+  const ps = new THREE.Scene();
+  const aspect = w / h;
+  const halfH = 0.62, halfW = halfH * aspect;
+  const pc = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.1, 10);
+  pc.position.set(0, 0, 4);
+  ps.add(new THREE.AmbientLight(0xffdd88, 0.6));
+  const pl = new THREE.PointLight(0xffaa55, 6, 20);
+  pl.position.set(2, 3, 5);
+  ps.add(pl);
+
+  const n = floaterData.length;
+  const spacing = (halfW * 2) / n;
+  const targetR = spacing * 0.38;
+  const meshes = [], mats = [];
+  floaterData.forEach((fd, i) => {
+    fd.geo.computeBoundingSphere();
+    const r = (fd.geo.boundingSphere && fd.geo.boundingSphere.radius) || 0.3;
+    const mat = new THREE.MeshStandardMaterial({
+      color: fd.color, emissive: fd.em, emissiveIntensity: 1.5,
+      emissiveMap: makeFloaterTex(fd.tex), roughness: 0.12, metalness: 0.55
+    });
+    const mesh = new THREE.Mesh(fd.geo, mat);
+    mesh.scale.setScalar(targetR / r);
+    mesh.position.x = -halfW + spacing * (i + 0.5);
+    mesh.rotation.set(i * 0.7, i, 0); // varied start angles
+    ps.add(mesh);
+    meshes.push(mesh); mats.push(mat);
+  });
+  _welcomeFloaters = { renderer: pr, scene: ps, camera: pc, meshes, mats };
+}
+function _tickWelcomeFloaters() {
+  if (!_welcomeFloaters || !_welcomeOpen) return;
+  for (const m of _welcomeFloaters.meshes) { m.rotation.y += 0.012; m.rotation.x += 0.005; }
+  _welcomeFloaters.renderer.render(_welcomeFloaters.scene, _welcomeFloaters.camera);
+}
+function _disposeWelcomeFloaters() {
+  if (!_welcomeFloaters) return;
+  // Geometries belong to floaterData / the main scene — never dispose them here.
+  _welcomeFloaters.mats.forEach(m => { m.emissiveMap?.dispose(); m.dispose(); });
+  _welcomeFloaters.renderer.dispose();
+  _welcomeFloaters = null;
 }
 
 // ══════════════════════════════════════════
@@ -1508,6 +1661,7 @@ const _DRS_INTERVAL = 30; // evaluate ~twice per second
 // visible hitch) right as the scene is revealed.
 let _firstLoopFrame = true;
 let _warmupUntil    = 0;
+let _emaReset       = false; // reset the frame-time average once, when the settle window ends
 // Re-applying the same pixel ratio + size still reallocates the WebGL drawing
 // buffer in most browsers, which shows up as a one-frame hitch. Opening/closing
 // an exhibit calls this every time, so skip the resize when nothing actually
@@ -1763,11 +1917,17 @@ function animate() {
   // during the initial settle window so load-in cost can't trigger a spurious DPR drop.
   if (_nowTs >= _warmupUntil && !exhibitPhase && !activeExhibit && ++_drsFrame >= _DRS_INTERVAL) {
     _drsFrame = 0;
+    // First judgement after the settle window: discard the average accumulated during cold-start
+    // (module eval + shader compile + first GPU-warmed frames) so those one-time slow frames
+    // can't be misread as a slow device and back resolution off — which on a hi-DPI display left
+    // the intro rendering at half-res for several seconds before climbing back. Judge only on
+    // post-settle frames.
+    if (!_emaReset) { _emaReset = true; _emaFrameMs = 1000 / 60; }
     const fps = 1000 / _emaFrameMs;
     if (fps < 54 && curDPR > MIN_DPR) {            // dropping frames — back off resolution fast
       curDPR = Math.max(MIN_DPR, curDPR - 0.2); _applyDPR();
-    } else if (fps > 58.5 && curDPR < MAX_DPR) {   // steady 60 — climb toward max gently
-      curDPR = Math.min(MAX_DPR, curDPR + 0.1); _applyDPR();
+    } else if (fps > 58.5 && curDPR < MAX_DPR) {   // steady 60 — climb back toward max
+      curDPR = Math.min(MAX_DPR, curDPR + 0.2); _applyDPR();
     }
   }
 
@@ -1821,7 +1981,7 @@ function animate() {
   const _roomLight = _rSmooth * (1 - focusDimT * 0.94);
   ambientLight.intensity    = _roomLight * 0.15;
   beamLight.intensity       = Math.max(0, 1 - _rSmooth * 2.5) * 6.0 * (1 - focusDimT);
-  beamCone.material.opacity = Math.max(0, 1 - _rSmooth * 2.5) * 0.045 * (1 - focusDimT);
+  beamCone.material.opacity = Math.max(0, 1 - _rSmooth * 2.5) * BEAM_CONE_OPACITY * (1 - focusDimT);
   scene.fog.density         = FOG_BASE + focusDimT * 0.11;
 
   // Beam fade-in is folded into the single floater pass below. Track whether the reveal
@@ -1852,11 +2012,10 @@ function animate() {
   // Tutorial step advancement
   if (tutStage === 2 && moving) _tutShow(3);
 
-  // Floaters — one indexed pass: bob/spin/track, beam fade-in, proximity glow, nearest
-  // trigger, and maintain the N nearest for the shared light pool. Indexed loop +
-  // preallocated nearest list = no per-frame closures or array allocations.
+  // Floaters — one indexed pass: bob/spin/track, beam fade-in, proximity glow, nearest trigger,
+  // and (mobile only) maintain the N nearest for the shared light pool.
   near.ref=null; near.dist=Infinity;
-  for (let k = 0; k < _poolNearest.length; k++) _poolNearest[k] = null;
+  for (let k = 0; k < _poolNearest.length; k++) _poolNearest[k] = null; // no-op on desktop (empty)
   for (let fi = 0; fi < floaters.length; fi++) {
     const f = floaters[fi];
     f.phase += dt;
@@ -1879,13 +2038,14 @@ function animate() {
     f.fShadow.position.x = f.mesh.position.x;
     f.fShadow.position.z = f.mesh.position.z;
     f.fShadow.material.opacity = 0.4 - floatY * 0.8;
-    if (f.floorSpot) {
+    if (f.floorSpot) { // mobile fake-beam floor disc tracks the floater
       f.floorSpot.position.x = f.mesh.position.x;
       f.floorSpot.position.z = f.mesh.position.z;
     }
 
-    // Beam fade-in with the reveal (was a separate pass) — skipped once the reveal is steady
-    if (_roomLightChanged && fi !== 0 && f.beamCone) {
+    // Beam fade-in with the reveal — skipped once the reveal is steady. Desktop drives a real
+    // SpotLight (f.beam); mobile drives the textured floor disc (f.floorSpot). Both fade the cone.
+    if (_roomLightChanged && fi !== 0) {
       if (f.beam) f.beam.intensity = _roomLight * 6.0;
       f.beamCone.material.opacity = _roomLight * BEAM_CONE_OPACITY;
       if (f.floorSpot) f.floorSpot.material.opacity = _roomLight * BEAM_FLOOR_SPOT_OPACITY;
@@ -1898,8 +2058,12 @@ function animate() {
     f.mesh.material.emissiveIntensity = (1.4 + prox * 3.2) * _rSmooth;
     f.aura.material.opacity = (0.07 + prox * 0.15) * _rSmooth;
     f.ring.material.opacity  = (0.36 + prox * 0.28) * _rSmooth;
-    f._lightI = (0.9 + prox * 2.2) * _rSmooth;  // consumed by the shared light pool
-    f._dist2  = dist2;
+    if (f.light) {
+      f.light.intensity = (0.9 + prox * 2.2) * _rSmooth;  // desktop per-floater light
+    } else {
+      f._lightI = (0.9 + prox * 2.2) * _rSmooth;          // mobile: consumed by the shared pool
+      f._dist2  = dist2;
+    }
 
     if(!f._hidden && dist2<near.dist){ near.dist=dist2; if(dist2<EXHIBIT_TRIGGER_R2)near.ref=f; }
     // Proximity preload: warm this exhibit's photos + card as the player approaches, so the
@@ -1917,8 +2081,9 @@ function animate() {
     // Advance tutorial when player reaches the octahedron
     if (tutStage === 3 && f === floaters[0] && dist2 < 7.84) _tutShow(4);
 
-    // Insertion into the fixed-size nearest list (ascending _dist2), no allocation
-    if (!f._hidden) {
+    // Mobile only: insertion into the fixed-size nearest list (ascending _dist2), no allocation.
+    // Desktop's _poolNearest is empty so this loop body never runs.
+    if (_poolNearest.length && !f._hidden) {
       for (let k = 0; k < _poolNearest.length; k++) {
         const cur = _poolNearest[k];
         if (cur === null || dist2 < cur._dist2) {
@@ -1930,21 +2095,20 @@ function animate() {
     }
   }
 
-  // Drive the shared light pool from the nearest floaters collected above
+  // Mobile only: drive the shared light pool from the nearest floaters collected above.
   for (let i = 0; i < _poolLights.length; i++) {
     const pl = _poolLights[i];
     const f  = _poolNearest[i];
-    if (f) {
-      pl.position.copy(f.mesh.position);
-      pl.color.setHex(f.color);
-      pl.intensity = f._lightI;
-    } else {
-      pl.intensity = 0;
-    }
+    if (f) { pl.position.copy(f.mesh.position); pl.color.setHex(f.color); pl.intensity = f._lightI; }
+    else pl.intensity = 0;
   }
 
   // Auto-close exhibit/crate when player walks away from the trigger floater
   _leaveExhibitRadius();
+
+  // Spread queued exhibit warm-up work across frames. Paused while an exhibit is
+  // opening/closing/open so its spin-in animation keeps the full frame budget.
+  if (!exhibitPhase && !activeExhibit) _drainWarmQueue(moving);
 
   // Interact (Space / E) and dismiss (Escape — desktop only)
   const eDown = keys['KeyE'] || keys['Space'];
@@ -2055,10 +2219,14 @@ function animate() {
       activeExhibit = def;
       iCD = 0.5;
     } else if (!_exhibitByFloaterRef.has(f)) {
-      showToast(f.message);
-      if (!roomRevealed && f === floaters[0]) {
-        roomRevealed = true;
-        _startExhibitPreloadDrain(); // trickle the gallery in; proximity prioritises the nearest
+      if (f === floaters[0]) {
+        showWelcomeCard();
+        if (!roomRevealed) {
+          roomRevealed = true;
+          _startExhibitPreloadDrain(); // trickle the gallery in; proximity prioritises the nearest
+        }
+      } else {
+        showToast(f.message);
       }
       if (tutStage === 4) _tutDismiss();
       iCD=1.0;
@@ -2266,6 +2434,7 @@ function animate() {
 
   renderer.render(scene, camera);
   _tickTutPreview();
+  _tickWelcomeFloaters();
   _mmFrame++;
   if (_mmFrame % (isMobile ? 3 : 2) === 0) drawMinimap();
 

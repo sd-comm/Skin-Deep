@@ -10,7 +10,7 @@ const { THREE } = core;
 
 function makeOutsaedaCardTex() {
   const W = 512, H = 384;
-  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 4; // 1024 / 2048 px — crisp at focus fill
+  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 3; // 1024 / 1536 px — crisp at focus fill
   const cv = document.createElement('canvas');
   cv.width = W * SS; cv.height = H * SS;
   const ctx = cv.getContext('2d');
@@ -73,7 +73,7 @@ function makeOutsaedaCardTex() {
 
   ctx.fillStyle = 'rgba(255,210,135,0.68)';
   ctx.font = '400 14px Georgia, serif';
-  ctx.fillText('The abaya reinvented as techwear —', cx, 192);
+  ctx.fillText('The abaya reinvented as techwear:', cx, 192);
   ctx.fillText('utilitarian, active streetwear for the', cx, 212);
   ctx.fillText('modern modest wardrobe.', cx, 232);
 

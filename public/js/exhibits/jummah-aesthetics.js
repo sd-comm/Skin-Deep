@@ -10,7 +10,7 @@ const { THREE } = core;
 
 function makeJummahCardTex() {
   const W = 512, H = 384;
-  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 4; // 1024 / 2048 px — crisp at focus fill
+  const SS = window.matchMedia('(pointer: coarse)').matches ? 2 : 3; // 1024 / 1536 px — crisp at focus fill
   const cv = document.createElement('canvas');
   cv.width = W * SS; cv.height = H * SS;
   const ctx = cv.getContext('2d');
@@ -78,7 +78,7 @@ function makeJummahCardTex() {
   ctx.fillStyle = 'rgba(255,210,135,0.68)';
   ctx.font = '400 14px Georgia, serif';
   ctx.fillText('What men wear to Friday prayers at', cx, 196);
-  ctx.fillText('four East London mosques — thobes,', cx, 216);
+  ctx.fillText('four East London mosques: thobes,', cx, 216);
   ctx.fillText('kameez & streetwear as living faith.', cx, 236);
 
   ctx.fillStyle = 'rgba(255,200,100,0.52)';
