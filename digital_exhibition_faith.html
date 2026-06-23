@@ -257,6 +257,18 @@
   }
   #mpc-yt-close:hover { background: rgba(28,22,16,0.95); }
 
+  /* YouTube embed that fills the focused CRT screen window. JS sets left/top/width/height
+     per-frame to track the screen mesh's projected rectangle, so the clip plays "inside" the
+     TV glass. z-index sits below the focus-escape-hint (25) so the "esc back" hint stays visible. */
+  #crt-yt-embed {
+    position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: 24;
+    overflow: hidden; background: #000; border-radius: 10px;  /* echo the CRT glass corners */
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+  #crt-yt-embed.visible { opacity: 1; pointer-events: auto; }
+  #crt-yt-embed iframe { width: 100%; height: 100%; border: 0; display: block; }
+
   /* Crate prev/next reuse the exhibit carousel nav style (side, vertically centred).
      Desktop cycles records with the up/down arrow keys, so the side buttons are mobile-only. */
   #crate-prev-btn { left: 16px; }
@@ -582,6 +594,10 @@
     <div id="mpc-yt-poster"></div>
     <div id="mpc-yt-spin"></div>
   </div>
+</div>
+<!-- YouTube embed that plays inside the focused CRT screen window (JS sizes it to fit). -->
+<div id="crt-yt-embed">
+  <iframe id="crt-yt-iframe" scrolling="no" frameborder="no" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
 </div>
 <button id="crate-prev-btn" class="exhibit-nav-btn" aria-label="previous record">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M15 18l-6-6 6-6"/></svg>

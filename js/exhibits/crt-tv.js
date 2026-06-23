@@ -997,6 +997,91 @@ function _dismissCrt() {
 // ══ SECTION FOCUS — the screen + control panel lift out of the cabinet, turn flat-on, and
 //    scale up to fill the view (a closer look), reusing the carousel/crate/MPC focus maths. ══
 
+// ── Focus render-resolution cap ──
+// While focused, the section fills ~94% of the viewport with the PBR screen + two additive
+// layers (glare, logo). At the raised exhibit DPR that's badly fill-rate bound on HiDPI
+// displays, and core's adaptive DPR is PAUSED while any exhibit is open — so it never backs
+// off. Cap the render DPR for the duration of focus (the focused content is noisy CRT static,
+// so the lower resolution is imperceptible), then restore it on the way out. Bypasses core's
+// DPR bookkeeping deliberately: it leaves curDPR/_lastAppliedDPR at EXHIBIT_DPR, and we restore
+// the renderer to exactly that, so endExhibitDPR() on close stays consistent.
+const CRT_FOCUS_MAX_DPR = 1.0;   // bump up for crisper focus if a machine can spare the fill
+let _crtSavedPR = null;
+
+function _applyCrtFocusDPR() {
+  if (_crtSavedPR !== null || !renderer) return;          // already capped
+  _crtSavedPR = renderer.getPixelRatio();
+  if (_crtSavedPR > CRT_FOCUS_MAX_DPR) renderer.setPixelRatio(CRT_FOCUS_MAX_DPR);
+}
+function _restoreCrtFocusDPR() {
+  if (_crtSavedPR === null || !renderer) return;
+  renderer.setPixelRatio(_crtSavedPR);
+  _crtSavedPR = null;
+}
+
+// ══ SCREEN VIDEO — a YouTube embed that plays "inside" the focused TV glass ══
+// You can't render YouTube into a WebGL texture (cross-origin), so the established pattern in
+// this app (see the MPC) is an HTML <iframe> overlay. Unlike the MPC's centred panel, this
+// one is sized per-frame (_fitCrtYtToScreen) to track the screen mesh's projected rectangle —
+// so the clip sits exactly over the TV glass while the silver frame + control panel still show
+// around it. Shown once the section settles into focus; src is cleared on the way out to stop
+// playback. Focusing is a user gesture (Space/E/tap), so autoplay with sound is allowed.
+const _elCrtYt       = document.getElementById('crt-yt-embed');
+const _elCrtYtIframe = document.getElementById('crt-yt-iframe');
+// Embed URLs (one for now; structured as a list so more clips can be added later). Uses the
+// privacy-friendly -nocookie host like the MPC; autoplay rides the focus user-gesture.
+const CRT_VIDEOS = ['https://www.youtube-nocookie.com/embed/khrkw63aMwc?rel=0&autoplay=1&playsinline=1'];
+let _crtVidIdx = 0;
+const _ytCorner = new THREE.Vector3();
+// Section-local centre + half-extents of the VISIBLE glass = the bezel opening (openW × openH),
+// NOT the slightly-oversized glass mesh (scrW = openW*1.02) which tucks under the bezel. Z sits
+// just behind the front face. SEC_CZ === fz so the local z is a small negative offset.
+// FIT_INSET shrinks a hair so perspective keystone (the screen sits left of the view axis) never
+// pushes the rectangle out over the silver bezel.
+const CRT_YT_FIT_INSET = 0.97;
+const _ytScrCX = sx - SEC_CX, _ytScrCY = sy - SEC_CY, _ytScrCZ = (fz - 0.04) - SEC_CZ;
+const _ytHalfW = openW * 0.5 * CRT_YT_FIT_INSET, _ytHalfH = openH * 0.5 * CRT_YT_FIT_INSET;
+
+// Project the 4 flat corners of the glass window to pixels and size the iframe to their bounding
+// rect. Using the FLAT opening (not the bulged mesh's AABB) keeps it tight to the glass — an AABB
+// over-estimates because the forward bulge gives the box phantom front corners the mesh never
+// reaches. Cheap (4 projected points) — safe to run per-frame.
+function _fitCrtYtToScreen() {
+  if (!_elCrtYt || !CRT.section) return;
+  CRT.section.updateWorldMatrix(true, false);
+  const m = CRT.section.matrixWorld;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < 4; i++) {
+    _ytCorner.set(
+      _ytScrCX + (i & 1 ? _ytHalfW : -_ytHalfW),
+      _ytScrCY + (i & 2 ? _ytHalfH : -_ytHalfH),
+      _ytScrCZ,
+    ).applyMatrix4(m).project(camera);
+    const px = (_ytCorner.x * 0.5 + 0.5) * window.innerWidth;
+    const py = (-_ytCorner.y * 0.5 + 0.5) * window.innerHeight;
+    if (px < minX) minX = px; if (px > maxX) maxX = px;
+    if (py < minY) minY = py; if (py > maxY) maxY = py;
+  }
+  const s = _elCrtYt.style;
+  s.left = minX + 'px'; s.top = minY + 'px';
+  s.width = (maxX - minX) + 'px'; s.height = (maxY - minY) + 'px';
+}
+
+function _showCrtYt() {
+  if (!_elCrtYt || !_elCrtYtIframe) return;
+  const url = CRT_VIDEOS[_crtVidIdx];
+  if (!url) return;
+  if (_elCrtYtIframe.src !== url) _elCrtYtIframe.src = url;   // (re)load on focus
+  _fitCrtYtToScreen();
+  _elCrtYt.classList.add('visible');
+}
+
+function _hideCrtYt() {
+  if (!_elCrtYt) return;
+  _elCrtYt.classList.remove('visible');
+  if (_elCrtYtIframe) _elCrtYtIframe.src = '';   // clearing src halts playback
+}
+
 // Live home (world) transform of the section had it stayed inside the model — the unit bobs
 // each frame, so the unfocus tween re-targets this every frame.
 function _crtSectionHomeWorld(outPos, outQuat) {
@@ -1039,6 +1124,7 @@ function _startCrtFocus() {
   _secFromQuat.copy(CRT.section.quaternion);
   _secFromScale = CRT.section.scale.x;
   if (CRT.halo) CRT.halo.visible = false;
+  _applyCrtFocusDPR();   // cap render resolution for the fill-heavy fullscreen focus
   _refreshCrtFocusTarget();
   crtFocusPhase = 'focusing';
   crtFocusT = 0;
@@ -1047,6 +1133,7 @@ function _startCrtFocus() {
 
 function _startCrtUnfocus() {
   if (crtFocusPhase !== 'focused' || !CRT.section) return;
+  _hideCrtYt();   // stop the clip the moment we begin stepping back
   _secFromPos.copy(CRT.section.position);
   _secFromQuat.copy(CRT.section.quaternion);
   _secFromScale = CRT.section.scale.x;
@@ -1066,6 +1153,7 @@ function _homeCrtSection() {
 
 function _finishCrtUnfocus() {
   _homeCrtSection();
+  _restoreCrtFocusDPR();   // back at cabinet size — restore full exhibit resolution
   crtFocusPhase = null;
   crtFocusT = 0;
   if (crtPhase === 'open') _showCrtOpenHint();   // back at the cabinet — re-offer "focus screen"
@@ -1073,7 +1161,9 @@ function _finishCrtUnfocus() {
 
 // Hard reset (on dismiss/close) — snap the section home immediately, no tween.
 function _resetCrtFocus() {
+  _hideCrtYt();
   _homeCrtSection();
+  _restoreCrtFocusDPR();
   if (CRT.halo) CRT.halo.visible = false;
   crtFocusPhase = null;
   crtFocusT = 0;
@@ -1092,7 +1182,7 @@ function _tickCrtFocus(dt) {
     sec.quaternion.copy(_secLerpQuat);
     sec.scale.setScalar(_secFromScale + (_secToScale - _secFromScale) * s);
     _recenterCrtFocus(s);   // ease the screen-centring in with the lift (no pop at settle)
-    if (crtFocusT >= 1) { crtFocusPhase = 'focused'; _showCrtFocusHint(); }
+    if (crtFocusT >= 1) { crtFocusPhase = 'focused'; _showCrtFocusHint(); _showCrtYt(); }
   } else if (crtFocusPhase === 'focused') {
     _refreshCrtFocusTarget();
     sec.position.copy(_secToPos);
@@ -1228,6 +1318,9 @@ registerExhibit({
 
     // Section focus tween (lift-out / settle / return).
     _tickCrtFocus(ctx.dt);
+
+    // Keep the screen video glued to the TV glass while focused (tracks any drift + resize).
+    if (crtFocusPhase === 'focused') _fitCrtYtToScreen();
 
     // Self-light the section in focus — ramp emissive on its metals with the lift so the
     // dials/knobs/bezel read once lifted away from the overhead spot (the screen + faceplate
