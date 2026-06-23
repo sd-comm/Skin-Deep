@@ -6,39 +6,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Digital Exhibition Faith** is a browser-based 3D interactive WebGL experience for [Skin Deep magazine](https://skindeepmag.com). The visitor navigates a dimly lit liminal space as a glowing orb, discovering floating geometric exhibition pieces that trigger individual art pieces when interacted with.
 
-The app is **buildless ES modules** — no bundler, no package manager, no compile step. `digital_exhibition_faith.html` holds the markup + CSS and loads Three.js r128 (CDN, global) then `js/main.js` as `<script type="module">`. Each exhibition lives in its **own file** under `js/exhibits/` so multiple people (or agents) can work on different exhibitions without touching the same file. The browser loads the modules directly over HTTP; deployment is still static files, no build.
+The app is **buildless ES modules** — no bundler, no package manager, no compile step. The entire deployed site lives under **`public/`** (the Cloudflare Pages web root). `public/index.html` holds the markup + CSS and loads Three.js r128 (local `three.min.js`, global) then `js/main.js` as `<script type="module">`. Each exhibition lives in its **own file** under `js/exhibits/` so multiple people (or agents) can work on different exhibitions without touching the same file. The browser loads the modules directly over HTTP; deployment is still static files, no build.
 
 ## Running locally
 
 ```
-python -m http.server 8080
+python -m http.server 8080 --directory public
 ```
 
-Then open `http://localhost:8080/digital_exhibition_faith.html`.
+Then open `http://localhost:8080/`.
 
-> Must be served over HTTP — not `file://` — because textures load as separate files.
+> Must be served over HTTP — not `file://` — because textures and modules load as separate files.
 
 ## Deployment
 
-Push to `main` → Cloudflare Pages auto-deploys. No build step. The experience is embedded as an `<iframe>` on the Skin Deep site.
+Push to `main` → Cloudflare Pages auto-deploys via `.github/workflows/deploy.yml` (`pages deploy public`). No build step. The `public/` directory is the web root; everything outside it (this file, `optimize_textures.py`, the `.png` source textures) is dev-only and not deployed. The experience is embedded as an `<iframe>` on the Skin Deep site.
 
 ## Architecture
 
 ### File layout
 
 ```
-digital_exhibition_faith.html   — markup + CSS; loads THREE (CDN) then js/main.js (module)
-js/
-  main.js          — manifest: imports the core + each exhibition module, then core.start()
-  core.js          — shared runtime: scene, player, lights, floaters, dust, input, tutorial,
+public/                          — Cloudflare Pages web root (the deployed site)
+  index.html       — markup + CSS; loads local three.min.js then js/main.js (module)
+  three.min.js     — Three.js r128
+  js/
+    main.js        — manifest: imports the core + each exhibition module, then core.start()
+    core.js        — shared runtime: scene, player, lights, floaters, dust, input, tutorial,
                      minimap, the animation loop, the exhibition REGISTRY, and the carousel engine
-  exhibits/
-    alim-photographer.js   — floater 1, photo carousel (data + info card)
-    masjid-uncles.js       — floater 2, photo carousel (data + info card)
-    vinyl-crate.js         — floater 3, bespoke (records, disc-focus, SoundCloud embed)
-    crt-tv.js              — floater 6, bespoke (retro TV)
-orb_tex.png                — Player orb texture
-tile.png                   — Floor and wall tile texture
+    exhibits/      — one file per exhibition (alim-photographer, masjid-uncles, vinyl-crate,
+                     crt-tv, babajis-britain, jummah-aesthetics, mpc-2000, outsaeda):
+      alim-photographer.js   — floater 1, photo carousel (data + info card)
+      masjid-uncles.js       — floater 2, photo carousel (data + info card)
+      vinyl-crate.js         — floater 3, bespoke (records, disc-focus, SoundCloud embed)
+      crt-tv.js              — floater 6, bespoke (retro TV)
+  images/          — exhibition photo assets (per-exhibit subfolders)
+  orb_tex.webp     — Player orb texture
+  tile.webp        — Floor and wall tile texture
+
+(dev-only, NOT deployed: optimize_textures.py, orb_tex.png / tile.png source textures)
 ```
 
 ### Exhibition module system
