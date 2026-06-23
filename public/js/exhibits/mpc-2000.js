@@ -786,7 +786,7 @@ function _showMpcOpenHint() {
   _setMpcHint(isMobile
     ? `<span class="feh-label">tap to focus the pads</span>`
     : `<span class="feh-key">spc</span><span class="feh-label">focus pads</span>`,
-    4200);
+    8500);
 }
 
 // Pad grid focused — how to move the cursor, play a pad, and step back.
@@ -794,14 +794,14 @@ function _showMpcFocusHint() {
   if (isMobile) {
     _setMpcHint(
       `<span class="feh-label">tap a pad to play</span>${_MPC_HINT_SEP}<span class="feh-label">tap outside to return</span>`,
-      4600);
+      9000);
   } else {
     _setMpcHint(
       `<span style="display:inline-flex;gap:4px"><span class="feh-key">&larr;</span><span class="feh-key">&rarr;</span>` +
       `<span class="feh-key">&uarr;</span><span class="feh-key">&darr;</span></span><span class="feh-label">select</span>` +
       `${_MPC_HINT_SEP}<span class="feh-key">spc</span><span class="feh-label">play</span>` +
       `${_MPC_HINT_SEP}<span class="feh-key">esc</span><span class="feh-label">back</span>`,
-      4600);
+      9000);
   }
 }
 

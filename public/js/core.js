@@ -1464,7 +1464,7 @@ function _showExhibitHint() {
   _elFocusEscapeHint.classList.remove('dim');
   _elFocusEscapeHint.classList.add('visible');
   clearTimeout(_focusEscapeTimer);
-  _focusEscapeTimer = setTimeout(() => _elFocusEscapeHint.classList.add('dim'), 3200);
+  _focusEscapeTimer = setTimeout(() => _elFocusEscapeHint.classList.add('dim'), 7000);
   if (exhibitPanelN >= 2) {
     _elExhibitPrev?.classList.add('visible');
     _elExhibitNext?.classList.add('visible');
@@ -1780,7 +1780,7 @@ function _showFocusEscapeHint() {
   _elFocusEscapeHint.classList.remove('dim');
   _elFocusEscapeHint.classList.add('visible');
   clearTimeout(_focusEscapeTimer);
-  _focusEscapeTimer = setTimeout(() => _elFocusEscapeHint.classList.add('dim'), 2800);
+  _focusEscapeTimer = setTimeout(() => _elFocusEscapeHint.classList.add('dim'), 6500);
 }
 
 function _showExhibitFocusHints() {
@@ -1798,7 +1798,7 @@ function _showExhibitFocusHints() {
   _elFocusEscapeHint.classList.remove('dim');
   _elFocusEscapeHint.classList.add('visible');
   clearTimeout(_focusEscapeTimer);
-  _focusEscapeTimer = setTimeout(() => _elFocusEscapeHint.classList.add('dim'), 3200);
+  _focusEscapeTimer = setTimeout(() => _elFocusEscapeHint.classList.add('dim'), 7000);
   _showExhibitFocusNav();
 }
 

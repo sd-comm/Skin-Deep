@@ -1086,7 +1086,7 @@ function _showCrateBrowseHint() {
   _elCrateBrowseHint.classList.add('visible');
   clearTimeout(_crateBrowseHintTimer);
   if (isMobile && multi) {
-    _crateBrowseHintTimer = setTimeout(() => _elCrateBrowseHint.classList.add('dim'), 3800);
+    _crateBrowseHintTimer = setTimeout(() => _elCrateBrowseHint.classList.add('dim'), 8000);
   }
 }
 

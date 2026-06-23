@@ -1432,7 +1432,7 @@ function _showCrtFocusHint() {
   _setCrtHint(isMobile
     ? ch + `<span class="feh-label">tap away to return</span>`
     : ch + `<span class="feh-key">esc</span><span class="feh-label">back</span>`,
-    CRT_VIDEOS.length > 1 ? 6000 : 4600);
+    CRT_VIDEOS.length > 1 ? 11000 : 9000);
 }
 
 // Mobile: a tap while focused returns to the cabinet (focus-open is driven by ctx.eEdge in
