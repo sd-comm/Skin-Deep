@@ -435,9 +435,11 @@ function makeVinylDiscTex(info) {
   const genres  = info.genres  || 'Nasheed  \u00B7  Qawwali  \u00B7  Bhajan';
   // S is the logical layout size — every coordinate below stays in this space.
   // The canvas is supersampled (SS) so the label text stays crisp when the disc
-  // is brought forward to fill the viewport in focus mode.
+  // is brought forward to fill the viewport in focus mode. SS 3 (was 4) on desktop drops each
+  // disc from a 2048² ~16MB upload to 1536² ~9MB — a lighter idle-prewarm slice on approach,
+  // still crisp full-screen — while the four discs build one-per-idle-slice in _vinylSteps.
   const S = 512;
-  const SS = isMobile ? 2 : 4;   // 1024 / 2048 px backing texture
+  const SS = isMobile ? 2 : 3;   // 1024 / 1536 px backing texture
   const cv = document.createElement('canvas');
   cv.width = cv.height = S * SS;
   const ctx = cv.getContext('2d');

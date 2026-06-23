@@ -327,13 +327,16 @@ const _qpMode = _qp.get('mobile') === '1' ? true : _qp.get('desktop') === '1' ? 
 const isMobile = _qpMode != null ? _qpMode
   : window.matchMedia('(pointer: coarse)').matches
     && !window.matchMedia('(any-pointer: fine)').matches;
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// powerPreference: pick the discrete GPU on dual-GPU laptops (no visual change, pure throughput).
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 // Adaptive resolution scaling — DPR is tuned at runtime to hold ~60fps (see animate()).
-// Start at full resolution; the governor backs off only if a device can't sustain 60fps.
 // Mobile floor is held at 1.5 so a transient FPS dip never drops to a blurry 1.0.
 const MIN_DPR = isMobile ? 1.5 : 1.0;
 const MAX_DPR = Math.min(window.devicePixelRatio, isMobile ? 2.0 : 2);
-let curDPR = MAX_DPR;
+// Soft-start: open slightly below full resolution so the heaviest first second (compile + first
+// GPU-warmed frames) never drops frames, then the governor climbs to MAX_DPR within ~1s once the
+// frame rate is steady. Barely perceptible behind the ~1s splash veil.
+let curDPR = Math.max(MIN_DPR, MAX_DPR - 0.4);
 // While an exhibit card is open the viewer studies the photos head-on, so we push
 // the framebuffer to full resolution and pause the adaptive downscaler (see animate()).
 const EXHIBIT_DPR = MAX_DPR;
@@ -617,31 +620,38 @@ floaterData.forEach(fd => {
   fShadow.renderOrder = 2;
   scene.add(fShadow);
 
-  // DESKTOP: a dedicated per-floater point light (the rich single-file look). MOBILE: no
-  // dedicated light — a shared pool (created below) lights only the nearest few, so the lit
-  // shader stays cheap (fewer NUM_POINT_LIGHTS) for a far shorter renderer.compile().
-  let fl = null;
-  if (!isMobile) {
-    fl = new THREE.PointLight(fd.color, 0.9, 4.5, 2);
-    fl.position.copy(mesh.position);
-    scene.add(fl);
-  }
-
-  floaters.push({ mesh, aura, ring, fShadow, light:fl, color:fd.color, message:fd.msg, baseY:fd.pos[1], phase:Math.random()*Math.PI*2, rotSpeed:(Math.random()-0.5)*0.02+0.015, texType:fd.tex });
+  // Floater dynamic lights are POOLED on every platform now (see the shared pools below): a fixed
+  // handful of lights repositioned each frame to the nearest floaters, instead of one light per
+  // object. Floaters sit 11+ units apart while a floater light reaches only ~4.5 units, so the
+  // nearest few read identically to one-per-floater — at a fraction of the per-pixel shading cost
+  // and a far shorter renderer.compile().
+  floaters.push({ mesh, aura, ring, fShadow, color:fd.color, message:fd.msg, baseY:fd.pos[1], phase:Math.random()*Math.PI*2, rotSpeed:(Math.random()-0.5)*0.02+0.015, texType:fd.tex });
 });
 
-// MOBILE-only shared point-light pool — repositioned each frame to the nearest floaters, so we
-// pay for a fixed handful of dynamic lights instead of one per object. Desktop uses per-floater
-// lights above and leaves these arrays empty.
-const FLOATER_LIGHT_POOL = isMobile ? 3 : 0;
+// Shared floater light pools — a fixed handful of lights repositioned each frame to the nearest
+// floaters (see the loop), instead of one light per object. This keeps NUM_*_LIGHTS — and so the
+// per-pixel shading cost (the dominant cost when panning) and the renderer.compile() time — low.
+// Sizing is visually safe: floaters are 11+ units apart and a floater light reaches only ~4.5
+// units, so the nearest few read identically to per-floater lights. Desktop also pools real
+// SpotLights for the beam floor-splash; mobile keeps its cheaper textured floor discs (spot pool
+// stays empty there). These are the one tuning knob if more GPU headroom is ever needed.
+const FLOATER_POINT_POOL = isMobile ? 3 : 4;
+const FLOATER_SPOT_POOL  = isMobile ? 0 : 4;
 const _poolLights = [];
-for (let i = 0; i < FLOATER_LIGHT_POOL; i++) {
+for (let i = 0; i < FLOATER_POINT_POOL; i++) {
   const pl = new THREE.PointLight(0xffffff, 0, 4.5, 2);
   scene.add(pl);
   _poolLights.push(pl);
 }
-// Reusable nearest-floater list for the pool — refilled allocation-free each frame (mobile only).
-const _poolNearest = new Array(_poolLights.length).fill(null);
+const _poolSpots = [];
+for (let i = 0; i < FLOATER_SPOT_POOL; i++) {
+  const sp = new THREE.SpotLight(0xffffff, 0, 18, Math.PI / 11, 0.25, 1.5);
+  sp.position.set(0, 13, 0);
+  scene.add(sp); scene.add(sp.target);
+  _poolSpots.push(sp);
+}
+// Reusable nearest-floater list for the pools — refilled allocation-free each frame.
+const _poolNearest = new Array(Math.max(_poolLights.length, _poolSpots.length)).fill(null);
 
 // ── DARK ROOM INITIAL STATE ──
 // All floaters start invisible; the beam + reveal animation will bring them in
@@ -649,7 +659,6 @@ floaters.forEach(f => {
   f.mesh.material.emissiveIntensity = 0;
   f.aura.material.opacity = 0;
   f.ring.material.opacity = 0;
-  if (f.light) f.light.intensity = 0;
 });
 
 // Volumetric-cone opacity for the soft additive glow that sells each beam shape (restored
@@ -677,10 +686,10 @@ beamCone.position.set(0, 4.5, 0);  // midpoint between source (y=9) and floor (y
 scene.add(beamCone);
 
 // ── BEAMS OF LIGHT on remaining floaters (fade in after room reveals) ──
-// DESKTOP: a real SpotLight per floater + volumetric cone (the rich single-file look, but the
-// heavy NUM_SPOT_LIGHTS=9 path). MOBILE: the cone + a textured floor disc and NO per-floater
-// SpotLight — only the central octahedron keeps a real spot — which roughly halves the shader
-// compile and the per-pixel lighting cost.
+// Every floater gets an always-on volumetric cone (the visible shaft). The real floor-splash light
+// is POOLED: desktop drives a few shared SpotLights onto the nearest floaters (so NUM_SPOT_LIGHTS
+// stays small); mobile uses a textured floor disc and no per-floater spot. Only the central
+// octahedron keeps its own dedicated SpotLight (beamLight, above).
 const BEAM_FLOOR_SPOT_OPACITY = 0.28; // mobile floor-disc brightness
 floaters.forEach((f, i) => {
   if (i === 0) return; // first floater's beam already created above
@@ -697,6 +706,8 @@ floaters.forEach((f, i) => {
   cone.position.set(px, 6.5, pz);
   scene.add(cone);
   f.beamCone = cone;
+  // Desktop's per-floater beam floor-splash now comes from the shared SpotLight pool (the nearest
+  // few floaters get a real spot). Mobile keeps its cheap textured floor disc.
   if (isMobile) {
     const floorSpot = new THREE.Mesh(
       new THREE.CircleGeometry(3.55, 24),
@@ -710,12 +721,6 @@ floaters.forEach((f, i) => {
     floorSpot.renderOrder = 1;
     scene.add(floorSpot);
     f.floorSpot = floorSpot;
-  } else {
-    const bl = new THREE.SpotLight(col, 0, 18, Math.PI / 11, 0.25, 1.5);
-    bl.position.set(px, 13, pz);
-    bl.target.position.set(px, 0.5, pz);
-    scene.add(bl); scene.add(bl.target);
-    f.beam = bl;
   }
 });
 
@@ -1208,20 +1213,23 @@ const pBuf = new THREE.BufferGeometry();
 pBuf.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
 scene.add(new THREE.Points(pBuf, new THREE.PointsMaterial({ color:0xff9933, size:0.09, transparent:true, opacity:0.42, sizeAttenuation:true, depthWrite:false })));
 const pData = Array.from({length:MAX_P}, () => ({x:0,y:0,z:0,life:0}));
-let pIdx=0, spawnAcc=0;
+let pIdx=0, spawnAcc=0, _pAny=false;
 
 function spawnP(x,z) {
   const p = pData[pIdx++%MAX_P];
   p.x=x+(Math.random()-0.5)*0.3; p.y=0.05+Math.random()*0.18; p.z=z+(Math.random()-0.5)*0.3; p.life=1;
+  _pAny=true;
 }
 function tickP(dt) {
+  if (!_pAny) return; // nothing alive — skip the 90-iter loop + buffer upload while standing still
   let anyActive = false;
   for(let i=0;i<MAX_P;i++){
     const p=pData[i];
     if(p.life>0){anyActive=true;p.life-=dt*0.72;p.y+=dt*0.07;}
     pPos[i*3]=p.life>0?p.x:9999; pPos[i*3+1]=p.y; pPos[i*3+2]=p.z;
   }
-  if (anyActive) pBuf.attributes.position.needsUpdate=true;
+  pBuf.attributes.position.needsUpdate=true; // ran this frame (decay or the final fade-out write)
+  _pAny=anyActive;
 }
 
 // ══════════════════════════════════════════
@@ -1509,8 +1517,8 @@ function _setFloaterVisible(f, visible) {
   f.aura.visible = visible;
   f.ring.visible = visible;
   f.fShadow.visible = visible;
-  if (f.light) f.light.visible = visible;
-  if (f.beam) f.beam.visible = visible;
+  // Pooled floater lights need no per-object toggle: the _hidden flag (set above) excludes this
+  // floater from the nearest-light pools, so its share of the pool goes dark on its own.
   if (f.beamCone) f.beamCone.visible = visible;
   if (f.floorSpot) f.floorSpot.visible = visible;
 }
@@ -1669,7 +1677,7 @@ let _keySpaceActive = false;
 let _lastFrameTs = performance.now();
 let _emaFrameMs  = 1000 / 60;
 let _drsFrame    = 0;
-const _DRS_INTERVAL = 30; // evaluate ~twice per second
+const _DRS_INTERVAL = 20; // evaluate ~three times per second — corrects a dip quickly
 // The first processed frame runs only after shader compile + the deferred floater-texture
 // build, so its elapsed interval is huge and would spike the average. Discard that gap and
 // hold DPR steady for a short settle window — otherwise the governor misreads the load-in
@@ -2084,7 +2092,6 @@ function animate() {
     f.mesh.position.y = f.baseY + floatY;
     f.mesh.rotation.x += f.rotSpeed;
     f.mesh.rotation.y += f.rotSpeed*1.4;
-    if (f.light) f.light.position.copy(f.mesh.position);
 
     // Aura tracks main mesh exactly
     f.aura.position.copy(f.mesh.position);
@@ -2104,10 +2111,10 @@ function animate() {
       f.floorSpot.position.z = f.mesh.position.z;
     }
 
-    // Beam fade-in with the reveal — skipped once the reveal is steady. Desktop drives a real
-    // SpotLight (f.beam); mobile drives the textured floor disc (f.floorSpot). Both fade the cone.
+    // Beam fade-in with the reveal — skipped once the reveal is steady. The cone shaft (every
+    // floater) and the mobile floor disc fade here; the desktop floor-splash SpotLights are driven
+    // by the shared pool below.
     if (_roomLightChanged && fi !== 0) {
-      if (f.beam) f.beam.intensity = _roomLight * 6.0;
       f.beamCone.material.opacity = _roomLight * BEAM_CONE_OPACITY;
       if (f.floorSpot) f.floorSpot.material.opacity = _roomLight * BEAM_FLOOR_SPOT_OPACITY;
     }
@@ -2119,12 +2126,8 @@ function animate() {
     f.mesh.material.emissiveIntensity = (1.4 + prox * 3.2) * _rSmooth;
     f.aura.material.opacity = (0.07 + prox * 0.15) * _rSmooth;
     f.ring.material.opacity  = (0.36 + prox * 0.28) * _rSmooth;
-    if (f.light) {
-      f.light.intensity = (0.9 + prox * 2.2) * _rSmooth;  // desktop per-floater light
-    } else {
-      f._lightI = (0.9 + prox * 2.2) * _rSmooth;          // mobile: consumed by the shared pool
-      f._dist2  = dist2;
-    }
+    f._lightI = (0.9 + prox * 2.2) * _rSmooth;  // consumed by the shared point-light pool (all platforms)
+    f._dist2  = dist2;
 
     if(!f._hidden && dist2<near.dist){ near.dist=dist2; if(dist2<EXHIBIT_TRIGGER_R2)near.ref=f; }
     // Proximity preload: warm this exhibit's photos + card as the player approaches, so the
@@ -2142,8 +2145,8 @@ function animate() {
     // Advance tutorial when player reaches the octahedron
     if (tutStage === 3 && f === floaters[0] && dist2 < 7.84) _tutShow(4);
 
-    // Mobile only: insertion into the fixed-size nearest list (ascending _dist2), no allocation.
-    // Desktop's _poolNearest is empty so this loop body never runs.
+    // Insertion into the fixed-size nearest list (ascending _dist2), no allocation. Feeds the
+    // shared light pools below on every platform; hidden floaters are skipped so they stay dark.
     if (_poolNearest.length && !f._hidden) {
       for (let k = 0; k < _poolNearest.length; k++) {
         const cur = _poolNearest[k];
@@ -2156,12 +2159,26 @@ function animate() {
     }
   }
 
-  // Mobile only: drive the shared light pool from the nearest floaters collected above.
+  // Drive the shared light pools from the nearest floaters collected above (all platforms). The
+  // point pool gives each nearby floater its proximity glow; the desktop spot pool adds the beam
+  // floor-splash for the nearest few (floater 0 keeps its own central beamLight, so it's skipped).
   for (let i = 0; i < _poolLights.length; i++) {
     const pl = _poolLights[i];
     const f  = _poolNearest[i];
     if (f) { pl.position.copy(f.mesh.position); pl.color.setHex(f.color); pl.intensity = f._lightI; }
     else pl.intensity = 0;
+  }
+  for (let i = 0; i < _poolSpots.length; i++) {
+    const sp = _poolSpots[i];
+    const f  = _poolNearest[i];
+    if (f && f !== floaters[0]) {
+      sp.position.set(f.mesh.position.x, 13, f.mesh.position.z);
+      sp.target.position.set(f.mesh.position.x, 0.5, f.mesh.position.z);
+      sp.color.setHex(f.color);
+      sp.intensity = _roomLight * 6.0;
+    } else {
+      sp.intensity = 0;
+    }
   }
 
   // Auto-close exhibit/crate when player walks away from the trigger floater

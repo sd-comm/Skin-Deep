@@ -366,7 +366,9 @@ function makeCrtPanelTex() {
   // labels and number rings rendered soft once the TV scales up in front of the player.
   // We back the canvas with an SS× denser bitmap and pre-scale the context, so the identical
   // artwork is rasterised at high resolution — crisp text/controls, no code below changes.
-  const SS = 2.5;
+  // SS 1.8 (was 2.5) ~halves this 3.3MP→1.7MP canvas: a much cheaper one-shot build + GPU upload
+  // when the player approaches the TV (the prewarm), still crisp at the in-focus viewing distance.
+  const SS = 1.8;
   const CW = 480, CH = Math.round(CW / PANEL_ASPECT);   // ≈ 1103 (logical design space)
   const c = document.createElement('canvas');
   c.width = Math.round(CW * SS); c.height = Math.round(CH * SS);
