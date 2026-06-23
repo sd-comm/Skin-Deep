@@ -104,5 +104,5 @@ registerPhotoExhibit({
     'images/webp/PICT0026-1.webp',
     'images/webp/fde-1.webp',
   ],
-  cardTex: makeMasjidUnclesCardTex(),
+  cardTex: makeMasjidUnclesCardTex, // factory — built lazily by core (off the import path)
 });

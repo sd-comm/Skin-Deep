@@ -105,5 +105,5 @@ registerPhotoExhibit({
     'images/outsaeda/outsaeda-4.webp',
     'images/outsaeda/outsaeda-3.webp',
   ],
-  cardTex: makeOutsaedaCardTex(),
+  cardTex: makeOutsaedaCardTex, // factory — built lazily by core (off the import path)
 });

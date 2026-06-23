@@ -106,5 +106,5 @@ registerPhotoExhibit({
     'images/babaji/babaji-brown-thumbs.webp',
     'images/babaji/babaji-cherry-bakewells-gulab-jamun.webp',
   ],
-  cardTex: makeBabajisBritainCardTex(),
+  cardTex: makeBabajisBritainCardTex, // factory — built lazily by core (off the import path)
 });

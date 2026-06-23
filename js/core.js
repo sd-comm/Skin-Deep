@@ -5,7 +5,7 @@
 
 
 function makeOrbTexture() {
-  const tex = new THREE.TextureLoader().load('orb_tex.png');
+  const tex = new THREE.TextureLoader().load('orb_tex.webp');
   return tex;
 }
 
@@ -219,11 +219,25 @@ function _warmExhibitPanel(tex) {
   _initTex(_getExhibitFrameTex(w, h));
 }
 
+// Build a photo exhibit's info-card texture on first need and cache it on the spec.
+// The card is a large supersampled canvas (up to 2048×1536); deferring it off the
+// import path — built during idle warm-up or at first open — keeps ~0.5-1s of canvas
+// work out of the initial load. spec.cardTex arrives as a factory function from the
+// exhibit module (see js/exhibits/*.js); the aspect is fixed so layout never waits.
+function _ensureCardTex(spec) {
+  if (!spec.cardTex && spec._cardFactory) {
+    spec.cardTex = spec._cardFactory();
+    _setTexAspect(spec.cardTex, spec.cardAspect || 512 / 384);
+    _initTex(spec.cardTex);
+  }
+  return spec.cardTex;
+}
+
 function loadExhibitTextures() {
   _photoSpecs.forEach(ex => {
     if (ex._loaded) return;
     ex._loaded = true;
-    _scheduleIdle(() => _warmExhibitPanel(ex.cardTex));
+    _scheduleIdle(() => _warmExhibitPanel(_ensureCardTex(ex)));
     ex.textures = ex.paths.map(path => {
       const tex = _configExhibitTex(_texLoader.load(path, img => {
         _setTexAspect(tex, img.width / img.height);
@@ -270,7 +284,7 @@ const MAX_ANISO = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.1, 80);
 
 // ── FLOOR ──
-const floorTex = new THREE.TextureLoader().load('tile.png');
+const floorTex = new THREE.TextureLoader().load('tile.webp');
 floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
 floorTex.repeat.set(4.5, 4.5);
 floorTex.generateMipmaps = true;
@@ -285,7 +299,7 @@ floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
 // ── ROOM WALLS + CEILING (no bottom face) ──
-const wallTex = new THREE.TextureLoader().load('tile.png');
+const wallTex = new THREE.TextureLoader().load('tile.webp');
 wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
 wallTex.repeat.set(3.8, 3);
 wallTex.generateMipmaps = true;
@@ -446,14 +460,28 @@ const floaterData = [
   { pos:[ -12,1.2,    0], geo:new THREE.TorusKnotGeometry(0.14,0.05,64,8), color:0xff99cc, em:0xcc3388, tex:'weave',   msg:"[EXHIBIT PIECE TRIGGERED]" },
 ];
 
+// Shared 1×1 black placeholder so every floater material is created WITH an emissiveMap.
+// The shader program then already carries the USE_EMISSIVEMAP define, so swapping in the
+// real procedural texture during idle (below) reuses the cached program — a cheap upload,
+// not a GPU recompile. Black = no emission, so even if glimpsed it reads as the base
+// material; the room is dark through reveal anyway, so it's never actually seen.
+const _emissivePlaceholder = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 1;
+  const cx = c.getContext('2d');
+  cx.fillStyle = '#000'; cx.fillRect(0, 0, 1, 1);
+  return new THREE.CanvasTexture(c);
+})();
+
 const floaters = [];
 floaterData.forEach(fd => {
   // Main mesh — procedural emissive texture. Mobile drops the clearcoat layer
-  // (MeshStandardMaterial) to roughly halve the per-pixel BRDF cost.
-  const fTex = makeFloaterTex(fd.tex);
+  // (MeshStandardMaterial) to roughly halve the per-pixel BRDF cost. The real emissive
+  // texture is generated lazily after first paint (see the idle build below) — at create
+  // time the material carries the shared placeholder so the program compiles once.
   const _matOpts = {
     color:fd.color, emissive:fd.em, emissiveIntensity:1.4,
-    emissiveMap: fTex,
+    emissiveMap: _emissivePlaceholder,
     roughness:0.12, metalness:0.55
   };
   const mesh = new THREE.Mesh(fd.geo, isMobile
@@ -507,8 +535,27 @@ floaterData.forEach(fd => {
     scene.add(fl);
   }
 
-  floaters.push({ mesh, aura, ring, fShadow, light:fl, color:fd.color, message:fd.msg, baseY:fd.pos[1], phase:Math.random()*Math.PI*2, rotSpeed:(Math.random()-0.5)*0.02+0.015 });
+  floaters.push({ mesh, aura, ring, fShadow, light:fl, color:fd.color, message:fd.msg, baseY:fd.pos[1], phase:Math.random()*Math.PI*2, rotSpeed:(Math.random()-0.5)*0.02+0.015, texType:fd.tex });
 });
+
+// Generate the 9 floater emissive textures across idle slices AFTER first paint, then
+// swap each onto its already-compiled material. Moves ~80-150ms of Voronoi/turbulence
+// canvas work off the initial load. Sequential (one build schedules the next) so we never
+// stack the heavy generators into a single idle period. start() holds the loading veil
+// until this finishes (_floaterTexReady) so the fade runs on a calm main thread and the
+// scene is fully built — no pattern pop-in — when the veil lifts.
+let _floaterTexReady = false;
+(function _buildFloaterTextures(i) {
+  if (i >= floaters.length) { _floaterTexReady = true; return; }
+  _scheduleIdle(() => {
+    const f = floaters[i];
+    const tex = makeFloaterTex(f.texType);
+    f.mesh.material.emissiveMap = tex;
+    f.mesh.material.needsUpdate = true; // program key unchanged → cached program reused, no recompile
+    _initTex(tex);
+    _buildFloaterTextures(i + 1);
+  });
+})(0);
 
 // Mobile shared point-light pool — repositioned each frame to the nearest floaters,
 // so we pay for 3 dynamic lights instead of 9 regardless of how many objects exist.
@@ -1316,7 +1363,7 @@ function _openExhibit(ex, px, pz, openYaw) {
   _setFloaterVisible(exhibitTriggerFloater, false);
   exhibitPlanes = Array.from({ length: exhibitPanelN }, (_, i) => {
     const a   = exhibitAngle + i * (Math.PI * 2 / exhibitPanelN);
-    const tex = i < ex.textures.length ? ex.textures[i] : ex.cardTex;
+    const tex = i < ex.textures.length ? ex.textures[i] : _ensureCardTex(ex);
     const { w: panelW, h: panelH } = _fitExhibitSize(_texAspect(tex));
     const geo = new THREE.PlaneGeometry(panelW, panelH);
     // toneMapped:false — skip the room's ACES Filmic curve + exposure boost so the
@@ -1415,6 +1462,13 @@ let _lastFrameTs = performance.now();
 let _emaFrameMs  = 1000 / 60;
 let _drsFrame    = 0;
 const _DRS_INTERVAL = 30; // evaluate ~twice per second
+// The first processed frame runs only after shader compile + the deferred floater-texture
+// build, so its elapsed interval is huge and would spike the average. Discard that gap and
+// hold DPR steady for a short settle window — otherwise the governor misreads the load-in
+// as a slow device and drops resolution, and each change reallocates the framebuffer (a
+// visible hitch) right as the scene is revealed.
+let _firstLoopFrame = true;
+let _warmupUntil    = 0;
 // Re-applying the same pixel ratio + size still reallocates the WebGL drawing
 // buffer in most browsers, which shows up as a one-frame hitch. Opening/closing
 // an exhibit calls this every time, so skip the resize when nothing actually
@@ -1445,6 +1499,7 @@ const _elAimReticle  = document.getElementById('aim-reticle');
 const _elUi               = document.getElementById('ui');
 const _elMmWrap           = document.getElementById('minimap-wrap');
 const _elFocusEscapeHint  = document.getElementById('focus-escape-hint');
+const _elLoadVeil         = document.getElementById('load-veil');
 
 
 
@@ -1537,7 +1592,11 @@ function registerExhibit(def) {
 // exhibit = a new data file + one import in js/main.js; nothing here changes.
 export function registerPhotoExhibit(spec) {
   // spec: { id, floater, paths: [...], cardTex, cardAspect? }
-  _setTexAspect(spec.cardTex, spec.cardAspect || 512 / 384);
+  // cardTex is a FACTORY function — its texture is built lazily via _ensureCardTex()
+  // so the heavy supersampled canvas stays off the import path. The card aspect is
+  // fixed (512/384) and stored on the spec so panel layout never waits on the build.
+  spec._cardFactory = (typeof spec.cardTex === 'function') ? spec.cardTex : null;
+  spec.cardTex = null;
   spec.floaterIdx = spec.floater;
   spec.textures = [];
   spec._loaded = false;
@@ -1599,8 +1658,31 @@ const _exhibitCtx = { dt: 0, t: 0, eEdge: false, escEdge: false, iCD: 0, setCD: 
 
 export { core, registerExhibit };
 // Called by js/main.js after every exhibition module has registered itself.
+// Fade out the instant loading veil once the scene is actually on screen, then drop
+// it from the DOM. Idempotent — called from a frame counter and a hard time fallback.
+function _revealScene() {
+  if (!_elLoadVeil || _elLoadVeil._revealed) return;
+  _elLoadVeil._revealed = true;
+  _elLoadVeil.classList.add('hidden');
+  setTimeout(() => _elLoadVeil.remove(), 700); // after the 0.6s opacity transition
+}
+
 export function start() {
+  // Compile every in-scene material now — while the veil still covers the canvas — so
+  // the first rendered frame doesn't hitch on shader compilation at room reveal. Safe
+  // because floater materials carry a stable placeholder emissiveMap (swapped, not added).
+  try { renderer.compile(scene, camera); } catch (e) {}
   animate();
+  // Reveal once the deferred floater textures are built AND a couple of frames have
+  // painted — so the veil's fade runs on a calm main thread (no idle-callback jank) and
+  // the scene behind it is complete. Hard fallback so the veil can never stick.
+  let _vf = 0;
+  const _tick = () => {
+    if (_floaterTexReady && ++_vf >= 2) _revealScene();
+    else requestAnimationFrame(_tick);
+  };
+  requestAnimationFrame(_tick);
+  setTimeout(_revealScene, 2500);
 }
 
 function animate() {
@@ -1617,10 +1699,16 @@ function animate() {
 
   // Adaptive resolution: track the processed-frame interval and retune DPR periodically.
   const _nowTs = performance.now();
+  if (_firstLoopFrame) {
+    _firstLoopFrame = false;
+    _lastFrameTs = _nowTs;          // discard the warm-up gap so it can't spike the average
+    _warmupUntil = _nowTs + 1500;   // let the frame rate settle before judging the device
+  }
   _emaFrameMs = _emaFrameMs * 0.9 + (_nowTs - _lastFrameTs) * 0.1;
   _lastFrameTs = _nowTs;
-  // Paused while an exhibit is open so an FPS dip can't claw back card resolution
-  if (!exhibitPhase && !activeExhibit && ++_drsFrame >= _DRS_INTERVAL) {
+  // Paused while an exhibit is open so an FPS dip can't claw back card resolution, and
+  // during the initial settle window so load-in cost can't trigger a spurious DPR drop.
+  if (_nowTs >= _warmupUntil && !exhibitPhase && !activeExhibit && ++_drsFrame >= _DRS_INTERVAL) {
     _drsFrame = 0;
     const fps = 1000 / _emaFrameMs;
     if (fps < 54 && curDPR > MIN_DPR) {            // dropping frames — back off resolution fast

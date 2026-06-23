@@ -5,6 +5,13 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Digital Exhibition Faith</title>
+<!-- Warm the critical-path fetches during HTML parse: the engine, the JS module graph,
+     and the two textures visible in the first complete frame. -->
+<link rel="preload" as="script" href="three.min.js">
+<link rel="modulepreload" href="js/main.js">
+<link rel="modulepreload" href="js/core.js">
+<link rel="preload" as="image" href="tile.webp" type="image/webp">
+<link rel="preload" as="image" href="orb_tex.webp" type="image/webp">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #000; overflow: hidden; font-family: 'Georgia', serif; }
@@ -555,9 +562,39 @@
     text-transform: uppercase; color: rgba(255,200,100,0.35);
   }
 
+  /* Instant loading veil — painted on first parse (no JS), faded out by core.js
+     once the scene is ready. Covers the blank-then-pop of the synchronous warm-up. */
+  #load-veil {
+    position: fixed; inset: 0; z-index: 9999;
+    background: #000;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 1; transition: opacity 0.7s ease-out;
+    /* Promote to its own GPU layer so the fade is compositor-driven — stays smooth even
+       while the deferred floater-texture builds keep the main thread busy. */
+    will-change: opacity;
+  }
+  #load-veil.hidden { opacity: 0; pointer-events: none; }
+  #load-veil .veil-orb {
+    width: 120px; height: 120px; border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%,
+      rgba(255,210,130,0.55) 0%,
+      rgba(255,170,60,0.22) 38%,
+      rgba(255,150,40,0) 70%);
+    animation: veil-pulse 1.8s ease-in-out infinite;
+    will-change: transform, opacity;
+  }
+  @keyframes veil-pulse {
+    0%, 100% { transform: scale(0.82); opacity: 0.55; }
+    50%      { transform: scale(1.08); opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #load-veil .veil-orb { animation: none; opacity: 0.8; }
+  }
+
 </style>
 </head>
 <body>
+<div id="load-veil"><div class="veil-orb"></div></div>
 <div id="ui">
   <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
     <div style="display:flex;justify-content:center"><div class="key" id="key-w">W</div></div>
@@ -638,7 +675,10 @@
 
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Self-hosted r128 (was a CDN dependency) — removes a third-party DNS/connection on
+     cold load and lets Cloudflare cache it with the app. defer so HTML parsing (and the
+     load veil's first paint) isn't blocked; deferred + module scripts still run in order. -->
+<script defer src="three.min.js"></script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

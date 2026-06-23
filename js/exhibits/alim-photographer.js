@@ -113,5 +113,5 @@ registerPhotoExhibit({
     'images/alim/alim-jiW2VlctJk0-unsplash.jpg',
     'images/alim/alim-V1Ii_Nq1k8o-unsplash.jpg',
   ],
-  cardTex: makePhotographerCardTex(),
+  cardTex: makePhotographerCardTex, // factory — built lazily by core (off the import path)
 });

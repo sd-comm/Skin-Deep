@@ -106,5 +106,5 @@ registerPhotoExhibit({
     'images/jummah/jummah-charcoal-thobe.webp',
     'images/jummah/jummah-diptych.webp',
   ],
-  cardTex: makeJummahCardTex(),
+  cardTex: makeJummahCardTex, // factory — built lazily by core (off the import path)
 });
