@@ -1208,26 +1208,14 @@ function _crtPreconnect() {
     });
 }
 
-// ── Blocked-embed detection + explainer ──
-// Ad-blockers / privacy extensions / tracking prevention CANCEL the request to youtube-nocookie,
-// so the glass stays black with no clip. "No load event" is NOT a reliable tell — the blocker
-// still fires `load` on the blanked/stub frame — and the frame is cross-origin so we can't inspect
-// it. Instead PROBE the same url with a no-cors fetch: a blocker that cancels the embed rejects this
-// too, while a reachable embed resolves (opaque, even on a 4xx). This can't false-positive over a
-// video that's actually playing — if it plays, the url is reachable and the fetch resolves. On a
-// reject we reveal #crt-yt-blocked, which says WHAT is blocking it and HOW to allow it.
-let _crtProbeId = 0;   // bumped on every (re)load/hide so a stale probe can't flip state late
-function _hideCrtBlocked() { if (_elCrtYt) _elCrtYt.classList.remove('blocked'); }
-// (Re)load a channel URL + probe whether it's blocked. Shared by focus-show + channel-change.
+// (Re)load a channel URL into the iframe. Shared by focus-show + channel-change. Whether a clip is
+// actually visible can't be detected reliably across the cross-origin frame (a blocker fires `load`
+// on the blanked frame, and probes get blocked too), so we don't try — a persistent desktop
+// heads-up (#crt-adblock-note in index.html, shown whenever the embed is .visible) covers the
+// ad-blocker case instead, and it's dismissible.
 function _loadCrtYt(url) {
   if (!_elCrtYtIframe) return;
-  _hideCrtBlocked();
-  if (_elCrtYtIframe.src === url) { ++_crtProbeId; return; }   // already this src — cancel stale probes
-  _elCrtYtIframe.src = url;
-  const my = ++_crtProbeId;
-  fetch(url, { mode: 'no-cors', cache: 'no-store' })
-    .then(() => { if (my === _crtProbeId) _hideCrtBlocked(); })                                   // reachable → not blocked
-    .catch(() => { if (my === _crtProbeId && _elCrtYt) _elCrtYt.classList.add('blocked'); });     // cancelled → blocked
+  if (_elCrtYtIframe.src !== url) _elCrtYtIframe.src = url;
 }
 
 function _showCrtYt() {
@@ -1243,15 +1231,13 @@ function _showCrtYt() {
   // at 0×0. (Top-level localhost tolerates the old order, which is why it only broke on deploy.)
   _elCrtYt.classList.add('visible');
   _fitCrtYtToScreen();
-  _loadCrtYt(url);   // (re)load at full size + arm the "is it blocked?" check
+  _loadCrtYt(url);   // (re)load at full size
 }
 
 function _hideCrtYt() {
   if (!_elCrtYt) return;
   _elCrtYt.classList.remove('visible', 'switching');
   clearTimeout(_crtSwitchTimer);
-  ++_crtProbeId;        // invalidate any in-flight probe so it can't flip .blocked after we hide
-  _hideCrtBlocked();
   if (_elCrtYtIframe) _elCrtYtIframe.src = '';   // clearing src halts playback
 }
 
