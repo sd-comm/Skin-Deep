@@ -8,8 +8,8 @@
 <!-- Warm the critical-path fetches during HTML parse: the engine, the JS module graph,
      and the two textures visible in the first complete frame. -->
 <link rel="preload" as="script" href="three.min.js">
-<link rel="modulepreload" href="js/main.js">
-<link rel="modulepreload" href="js/core.js">
+<link rel="modulepreload" href="app/main.js">
+<link rel="modulepreload" href="app/core.js">
 <link rel="preload" as="image" href="tile.webp" type="image/webp">
 <link rel="preload" as="image" href="orb_tex.webp" type="image/webp">
 <style>
@@ -867,6 +867,6 @@
      cold load and lets Cloudflare cache it with the app. defer so HTML parsing (and the
      load veil's first paint) isn't blocked; deferred + module scripts still run in order. -->
 <script defer src="three.min.js"></script>
-<script type="module" src="js/main.js"></script>
+<script type="module" src="app/main.js"></script>
 </body>
 </html>
