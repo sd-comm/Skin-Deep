@@ -3,21 +3,22 @@
 # because the experience is embedded in a cross-origin <iframe>, so even a parent hard-refresh
 # doesn't bust the iframe's cached subresources.
 #
-# Two Pages quirks learned the hard way:
-#  - A LEADING-splat pattern (/*, /*.ext) matches greedily across slashes, but a trailing
-#    /dir/* splat matched NOTHING here (/js/* left the module graph on the default max-age=14400).
-#    So target by extension with leading-splat patterns.
-#  - When several rules match one file their headers are COMBINED (no "most specific wins"), so a
-#    file must match exactly ONE Cache-Control rule — the patterns below are non-overlapping.
+# IMPORTANT: a Cloudflare Cache Rule on the skindeepmag.com zone forces a 4h browser TTL on
+# everything under /js/, OVERRIDING what this file sets there (root files obeyed _headers; /js/
+# files were stuck at max-age=14400 no matter what). So the module graph was MOVED out of /js/
+# into /app/ to dodge that rule — see public/app/. If that zone rule is ever set to "Respect
+# Existing Headers", the path no longer matters.
+#
+# Also: Pages combines headers from ALL matching rules (no "most specific wins"), so each file
+# must match exactly ONE Cache-Control rule — the patterns below are non-overlapping by extension.
 
-# JS (including the vendored three.min.js) + HTML: always revalidate. Stable filenames mean a tiny
-# 304 via ETag when nothing changed, and the new file immediately after a deploy — never stale code.
+# JS (the /app module graph + the vendored three.min.js) + HTML: always revalidate. Stable
+# filenames mean a tiny 304 via ETag when unchanged, and the new file immediately after a deploy.
 /*.js
   Cache-Control: public, max-age=0, must-revalidate
 /*.html
   Cache-Control: public, max-age=0, must-revalidate
 
-# Textures (.webp) match no other rule, so this is the only one they hit — cache a day; bump/purge
-# in the Cloudflare dashboard on the rare swap (filenames are stable).
+# Textures (.webp) match no other rule — cache a day; bump/purge in the dashboard on the rare swap.
 /*.webp
   Cache-Control: public, max-age=86400

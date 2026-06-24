@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Digital Exhibition Faith** is a browser-based 3D interactive WebGL experience for [Skin Deep magazine](https://skindeepmag.com). The visitor navigates a dimly lit liminal space as a glowing orb, discovering floating geometric exhibition pieces that trigger individual art pieces when interacted with.
 
-The app is **buildless ES modules** — no bundler, no package manager, no compile step. The entire deployed site lives under **`public/`** (the Cloudflare Pages web root). `public/index.html` holds the markup + CSS and loads Three.js r128 (local `three.min.js`, global) then `js/main.js` as `<script type="module">`. Each exhibition lives in its **own file** under `js/exhibits/` so multiple people (or agents) can work on different exhibitions without touching the same file. The browser loads the modules directly over HTTP; deployment is still static files, no build.
+The app is **buildless ES modules** — no bundler, no package manager, no compile step. The entire deployed site lives under **`public/`** (the Cloudflare Pages web root). `public/index.html` holds the markup + CSS and loads Three.js r128 (local `three.min.js`, global) then `app/main.js` as `<script type="module">`. Each exhibition lives in its **own file** under `app/exhibits/` so multiple people (or agents) can work on different exhibitions without touching the same file. (The module graph lives in `app/`, **not** `js/` — it was moved there to dodge a Cloudflare zone Cache Rule that pinned everything under `/js/` to a 4h browser cache, which shadowed deploys.) The browser loads the modules directly over HTTP; deployment is still static files, no build.
 
 ## Running locally
 
@@ -28,9 +28,10 @@ Push to `main` → Cloudflare Pages auto-deploys via `.github/workflows/deploy.y
 
 ```
 public/                          — Cloudflare Pages web root (the deployed site)
-  index.html       — markup + CSS; loads local three.min.js then js/main.js (module)
+  index.html       — markup + CSS; loads local three.min.js then app/main.js (module)
   three.min.js     — Three.js r128
-  js/
+  _headers         — Cloudflare cache rules (HTML+JS revalidate; webp cached a day)
+  app/             — module graph (was js/; moved to dodge a /js/* zone Cache Rule)
     main.js        — manifest: imports the core + each exhibition module, then core.start()
     core.js        — shared runtime: scene, player, lights, floaters, dust, input, tutorial,
                      minimap, the animation loop, the exhibition REGISTRY, and the carousel engine
@@ -74,9 +75,9 @@ disposeObject3D, beginExhibitDPR/endExhibitDPR, setCD, hidePrompt, computeFocusT
 showFocusEscapeHint/hideFocusEscapeHint, initTex, scheduleIdle, showToast`), input (`keys`), and
 shared HUD element refs (`elPrompt, elAimReticle, elIprLabel, elIprIcon, elMmWrap, elUi, jZone`).
 
-**To ADD an exhibition:** create `js/exhibits/<name>.js`, `import { core } from '../core.js'`,
+**To ADD an exhibition:** create `app/exhibits/<name>.js`, `import { core } from '../core.js'`,
 build/cache its model + textures, and `core.registerExhibit({...})`. Then add ONE import line to
-`js/main.js`. Nothing in `core.js` or other exhibition files changes. Two bespoke pieces (crate,
+`app/main.js`. Nothing in `core.js` or other exhibition files changes. Two bespoke pieces (crate,
 crt) are full self-contained modules; **photo carousels share an engine** — a new photo exhibit is
 just a data file calling `registerPhotoExhibit({ id, floater, paths, cardTex })`.
 
