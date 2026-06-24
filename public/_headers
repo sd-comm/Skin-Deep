@@ -1,23 +1,23 @@
-# Cloudflare Pages headers. Buildless app with STABLE filenames (no content hashes), so a
-# long browser TTL shadows new deploys with the cached old modules until it expires — worse
-# here because the experience is embedded in a cross-origin <iframe>, so even a parent
-# hard-refresh doesn't bust the iframe's cached subresources.
+# Cloudflare Pages headers. Buildless app with STABLE filenames (no content hashes), so a long
+# browser TTL shadows new deploys with the cached old modules until it expires — worse here
+# because the experience is embedded in a cross-origin <iframe>, so even a parent hard-refresh
+# doesn't bust the iframe's cached subresources.
 #
-# NOTE: Pages `_headers` matches a LEADING `/*` splat (optionally with a suffix, e.g. `/*.js`),
-# but a trailing `/dir/*` splat did NOT match here — `/js/*` left the whole module graph on the
-# platform default (max-age=14400, the stale-deploy bug). So target by extension instead.
+# Two Pages quirks learned the hard way:
+#  - A LEADING-splat pattern (/*, /*.ext) matches greedily across slashes, but a trailing
+#    /dir/* splat matched NOTHING here (/js/* left the module graph on the default max-age=14400).
+#    So target by extension with leading-splat patterns.
+#  - When several rules match one file their headers are COMBINED (no "most specific wins"), so a
+#    file must match exactly ONE Cache-Control rule — the patterns below are non-overlapping.
 
-# JS + HTML: always revalidate (a tiny 304 via ETag when unchanged; new code picked up on the
-# next load right after a deploy instead of being shadowed for hours).
+# JS (including the vendored three.min.js) + HTML: always revalidate. Stable filenames mean a tiny
+# 304 via ETag when nothing changed, and the new file immediately after a deploy — never stale code.
 /*.js
   Cache-Control: public, max-age=0, must-revalidate
 /*.html
   Cache-Control: public, max-age=0, must-revalidate
 
-# Large, rarely-changing media — cache a day. three.min.js is vendored (r128) and never changes,
-# so keep it cached (declared last so it wins over /*.js) to avoid revalidating 600 KB on every
-# startup; purge in the Cloudflare dashboard on the rare swap.
+# Textures (.webp) match no other rule, so this is the only one they hit — cache a day; bump/purge
+# in the Cloudflare dashboard on the rare swap (filenames are stable).
 /*.webp
-  Cache-Control: public, max-age=86400
-/three.min.js
   Cache-Control: public, max-age=86400
