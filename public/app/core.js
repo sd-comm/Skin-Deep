@@ -461,11 +461,16 @@ function _buildInfoCardPortrait(spec) {
   for (const it of items) { y += it.gap; it.render(y); }
 
   const tex = new THREE.CanvasTexture(cv);
-  // No mipmaps + clamp: the card is viewed near head-on at focus, and this keeps the tall NPOT
-  // canvas at native size (WebGL1 would otherwise upscale it to a power of two — softer + heavier).
-  tex.minFilter = THREE.LinearFilter;
+  // Trilinear mipmaps + anisotropy. In the carousel (pre-focus) the card is displayed only ~275 CSS
+  // px wide, so its 1200px texture is minified ~2x; plain LinearFilter samples just two texels and
+  // smears the small body type into an unreadable blur. Mipmaps give a properly downsampled chain so
+  // the text stays legible at any size/angle, and anisotropy keeps it crisp on the tilted orbit cards.
+  // WebGL2 (every target device) mipmaps this NPOT canvas in place — no power-of-two resize, no
+  // softening; only the legacy WebGL1 fallback would rescale it (still better than the aliased blur).
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  tex.generateMipmaps = false;
+  tex.generateMipmaps = true;
+  tex.anisotropy = MAX_ANISO;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.userData = tex.userData || {};                  // fresh textures can have undefined userData here
   tex.userData.aspect = W / H;                        // portrait — _ensureCardTex defers to this
@@ -624,6 +629,12 @@ let curDPR = Math.max(MIN_DPR, MAX_DPR - 0.4);
 // While an exhibit card is open the viewer studies the photos head-on, so we push
 // the framebuffer to full resolution and pause the adaptive downscaler (see animate()).
 const EXHIBIT_DPR = MAX_DPR;
+// At FOCUS (one card pulled up 1:1) the scene is near-static — a single quad over a dimmed,
+// frozen room with DRS paused — so we can afford the device's NATIVE pixel ratio even on mobile,
+// where the roaming cap (MAX_DPR=2) would otherwise minify the ~1200px card texture into a ~740px
+// region and let the browser upscale it back (jagged text + blur). Capped at 3 so a 4x-DPR panel
+// can't allocate a runaway framebuffer. Desktop keeps the cap at 2.
+const EXHIBIT_FOCUS_DPR = Math.min(window.devicePixelRatio || 1, isMobile ? 3 : 2);
 let _savedDPR = curDPR;
 renderer.setPixelRatio(curDPR);
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -1877,9 +1888,10 @@ function _startExhibitFocus(idx) {
   exhibitFocusPhase = 'focusing';
   exhibitFocusSwitchTo = -1;
   exhibitFocusT = 0;
-  // Boost to full resolution now — focus is the only place the photo is studied 1:1.
+  // Boost to native resolution now — focus is the only place the photo/info card is studied 1:1,
+  // and the static focused view affords full DPR even on mobile (see EXHIBIT_FOCUS_DPR).
   // (DRS is paused while an exhibit is open, so this DPR stays put until unfocus/close.)
-  if (curDPR !== EXHIBIT_DPR) { curDPR = EXHIBIT_DPR; _applyDPR(); }
+  if (curDPR !== EXHIBIT_FOCUS_DPR) { curDPR = EXHIBIT_FOCUS_DPR; _applyDPR(); }
   _hideFocusEscapeHint();
   _hideExhibitNav();
   _hideExhibitPanGuide();
